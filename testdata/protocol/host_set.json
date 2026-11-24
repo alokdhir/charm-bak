@@ -1,0 +1,23 @@
+{
+  "request": {
+    "id": 1,
+    "method": "host_set",
+    "params": {
+      "name": "pantry",
+      "address": "192.168.1.20:7457"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "host": {
+        "name": "pantry",
+        "local": false,
+        "address": "192.168.1.20:7457",
+        "state": "unreachable",
+        "error": "connecting",
+        "last_seen": null
+      }
+    }
+  }
+}

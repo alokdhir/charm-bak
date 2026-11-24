@@ -1,0 +1,12 @@
+{
+  "event": {
+    "event": "progress",
+    "job_id": "j-42",
+    "percent": 0.112,
+    "files_done": 2,
+    "total_files": 3,
+    "bytes_done": 45223108,
+    "total_bytes": 403000012,
+    "current": "/Users/alok/src/big.bin"
+  }
+}

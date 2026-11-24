@@ -1,0 +1,22 @@
+{
+  "request": {
+    "id": 12,
+    "method": "source_rewrite",
+    "params": {
+      "id": "998cad94",
+      "excludes": ["/Users/alok/Library/Keychains/FEEA8E84-FDB5-536D-81AE-172646D1C075"]
+    }
+  },
+  "reply": {
+    "id": 12,
+    "result": {
+      "snapshots": 0,
+      "job": {
+        "id": "j-7f3a9c21",
+        "kind": "rewrite",
+        "source": "998cad94",
+        "started": "2026-11-23T18:20:00-05:00"
+      }
+    }
+  }
+}

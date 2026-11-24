@@ -1,0 +1,20 @@
+{
+  "request": {
+    "id": 1,
+    "method": "backup_now",
+    "params": {
+      "source": "3f9a"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "job": {
+        "id": "j-42",
+        "kind": "backup",
+        "source": "3f9a",
+        "started": "2026-11-19T12:00:00-05:00"
+      }
+    }
+  }
+}

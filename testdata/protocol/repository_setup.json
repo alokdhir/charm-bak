@@ -1,0 +1,27 @@
+{
+  "request": {
+    "id": 1,
+    "method": "repository_setup",
+    "params": {
+      "host": "pantry",
+      "location": "/Volumes/Backup/charm-bak/pantry",
+      "init": true
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "repository": {
+        "location": "/Volumes/Backup/charm-bak/pantry",
+        "password_from": "file /var/lib/charm-bak/repo-password",
+        "aws_from": "",
+        "stored_bytes": 0,
+        "logical_bytes": 0,
+        "last_prune": null,
+        "last_check": null,
+        "next_maintenance": "2026-11-22T14:00:00-05:00"
+      },
+      "password": "example-password-not-real"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "request": {
+    "id": 1,
+    "method": "status"
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "repository": {
+        "location": "s3:s3.amazonaws.com/charm-bak/studio",
+        "stored_bytes": 3300000,
+        "logical_bytes": 8200000
+      },
+      "state": "running",
+      "job": {
+        "id": "j-42",
+        "kind": "backup",
+        "source": "3f9a",
+        "started": "2026-11-19T12:00:00-05:00"
+      },
+      "paused": false,
+      "full_disk_access": true
+    }
+  }
+}

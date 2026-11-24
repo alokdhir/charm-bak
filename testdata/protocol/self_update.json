@@ -1,0 +1,20 @@
+{
+  "request": {
+    "id": 7,
+    "method": "self_update",
+    "params": {
+      "sha256": "9f2c4e1d0b7a6c5e8f3d2a1b0c9e8d7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d",
+      "size": 11,
+      "offset": 0,
+      "data": "aGVsbG8gd29ybGQ=",
+      "bundle": true
+    }
+  },
+  "reply": {
+    "id": 7,
+    "result": {
+      "received": 11,
+      "restarting": true
+    }
+  }
+}

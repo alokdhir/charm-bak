@@ -1,0 +1,7 @@
+{
+  "event": {
+    "event": "state_changed",
+    "state": "idle",
+    "job": null
+  }
+}

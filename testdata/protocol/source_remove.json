@@ -1,0 +1,14 @@
+{
+  "request": {
+    "id": 1,
+    "method": "source_remove",
+    "params": {
+      "id": "3f9a",
+      "keep_snapshots": true
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {}
+  }
+}

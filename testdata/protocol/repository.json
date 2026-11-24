@@ -1,0 +1,51 @@
+{
+  "request": {
+    "id": 1,
+    "method": "repository"
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "repository": {
+        "location": "s3:s3.amazonaws.com/charm-bak/studio",
+        "password_from": "Keychain charm-bak-repo / studio",
+        "aws_from": "Keychain charm-bak-aws / studio",
+        "stored_bytes": 3300000,
+        "logical_bytes": 8200000,
+        "last_prune": {
+          "job": "j-40",
+          "kind": "prune",
+          "source": null,
+          "started": "2026-11-16T03:00:00-05:00",
+          "ended": "2026-11-16T03:04:10-05:00",
+          "status": "ok",
+          "files_new": 0,
+          "files_changed": 0,
+          "bytes_added": 0,
+          "files": 0,
+          "bytes": 0,
+          "snapshot": "",
+          "error": ""
+        },
+        "last_check": null,
+        "next_maintenance": "2026-11-23T03:04:10-05:00"
+      },
+      "defaults": {
+        "schedule": {
+          "every": 3600
+        },
+        "retention": {
+          "last": 10,
+          "hourly": 24,
+          "daily": 7,
+          "weekly": 4,
+          "monthly": 12,
+          "yearly": 3
+        },
+        "excludes": [
+          "*.log"
+        ]
+      }
+    }
+  }
+}

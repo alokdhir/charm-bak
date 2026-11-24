@@ -1,0 +1,20 @@
+{
+  "request": {
+    "id": 1,
+    "method": "dump",
+    "params": {
+      "snapshot": "2438fde6",
+      "path": "/Users/alok/src/charm-bak/go.mod",
+      "max": 65536
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "data": "bW9kdWxlIGNoYXJtLWJhawo=",
+      "size": 410,
+      "truncated": true,
+      "binary": false
+    }
+  }
+}

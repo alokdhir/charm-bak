@@ -1,0 +1,220 @@
+# charm-bak
+
+Backups for a Mac and the Linux boxes around it, to storage you own, with a terminal UI you'd actually want to open.
+
+charm-bak is a menu bar app, a background daemon and a [Charm](https://charm.sh)-style TUI wrapped around [restic](https://restic.net). restic does the hard part: encrypted, deduplicated, compressed snapshots in S3, Backblaze B2, a drive, or anything else it supports. charm-bak does everything around it: scheduling, retention, credentials, a browser for your history, restore, diff, and running the same thing on other machines without SSH.
+
+> Status: 0.3, pre-release. It backs up the author's Mac and home server every hour, and has been paired with a second Mac as a remote. What's still missing is listed under [What's rough](#whats-rough).
+
+![charm-bak's TUI: a source's snapshots, each with how much it added, then the files in one snapshot and a preview of the selected file](docs/screenshot.png)
+
+## Why
+
+restic is an excellent engine and deliberately nothing more. It has no scheduler, no config file, no place to keep credentials, and no interface beyond its commands. Using it day to day means writing launchd jobs and wrapper scripts, deciding where the repository password lives, remembering the `forget` flags, and reading JSON to find the file you deleted last Tuesday.
+
+The tools that do have an interface each gave up something I wanted:
+
+- **Time Machine** needs a local or network disk. It has no cloud destination.
+- **Hosted backup services** are simple, but the data sits in their format on their storage, and the retention choices are theirs.
+- **Arq** backs up to your own storage and is good. It is paid, closed source, and stores data in its own format.
+- **Kopia** is a capable engine with its own scheduler and desktop app. charm-bak builds on restic instead: see [Why restic](#why-restic).
+- **Backrest** is a web UI and scheduler for restic. It suits a server you reach through a browser. I wanted something native to the Mac and to the terminal.
+
+charm-bak is the missing layer for someone who wants restic's engine, their own bucket, and no homework.
+
+## What it does
+
+**Backs up on its own.** Each machine's daemon checks every minute for what's due, so runs missed while a laptop slept catch up on wake. Backups, cleanup and integrity checks are all scheduled for you. A failed run posts a macOS notification; successes stay quiet.
+
+**Sets itself up.** First launch walks through one decision per screen: where the backups go, the details, a check that it works, and the recovery key. For S3 it can sign in to AWS in the browser and make the bucket and a key limited to that machine's own folder. The repository password is generated for you, stored in the Keychain, and shown once to write down.
+
+**Lets you browse history like a file manager.** Sources, snapshots and files sit in columns, with a preview on the right. Press space for a Quick Look-style info panel that follows the cursor as you move.
+
+**Is fast to browse.** Every restic call pays a second or so of startup, so charm-bak lists each snapshot's whole tree once, in the background, and keeps it in a local SQLite cache. Opening a snapshot you've looked at before is instant, even after a restart, and the newest one is warmed as soon as you select its source.
+
+**Shows what each backup actually did.** Every snapshot shows how much new data it stored, and `c` lists exactly what it added, removed and changed since the one before, through the whole tree. Files whose contents are the same but whose details changed (a timestamp, permissions) are listed too, muted, which explains a backup that stored new data without any file's contents changing.
+
+**Restores and compares.** Restore one file or a whole tree, as a copy or in place, onto the machine it came from or onto this Mac. Diff any file or folder in a snapshot against what's on disk now.
+
+**Picks what to back up by ticking boxes.** The folder picker is a tree over the live disk: tick what's in, untick what's out. Patterns such as `node_modules` or `*.tmp` go in a list that explains what each one matches.
+
+**Keeps what you'd expect.** Retention is one choice: 1 month, 1 year, 3 years, or forever. Each thins out the way Time Machine does: every backup for a day, then dailies, weeklies and monthlies. Custom counts are there if you want them. Pin a snapshot and it's never removed.
+
+**Takes things back out.** Backed up something you shouldn't have? Exclude it from future runs, or remove it from past snapshots too.
+
+**Runs on your other machines without SSH.** Add Remote shows one command to paste on a Linux box or another Mac. It installs the same daemon there, pairs it with this Mac over mutually authenticated TLS, and from then on that machine backs up on its own schedule with its own credentials, whether the Mac is awake or not. You configure, browse and restore all of them from the one TUI, and their failures arrive as notifications on the Mac.
+
+**Keeps working when a machine is down.** The Mac reads each remote's repository itself rather than asking the remote, so a server that's crashed or a laptop that's asleep can still be browsed, compared and restored from, which is exactly when you need it. Actions that need the machine itself (editing its sources, backing it up now) are dimmed until it's back, and it's picked up within seconds when it returns.
+
+**Updates its remotes itself.** The app carries the daemon built for Linux (amd64 and arm64) and for Mac remotes, and whenever the Mac connects to a remote running a different build, it sends the new one over the paired connection; the remote checks it, swaps itself and restarts in place. There's nothing to install or update by hand on a remote after the first command.
+
+**Stays out of the way of restic.** The repository is a plain restic repository. `eval "$(charm-bak -env)"` sets up a shell so any `restic` command works against it, and if charm-bak disappeared tomorrow, restic alone could restore everything.
+
+## How it compares
+
+| | charm-bak | restic alone | Backrest | Kopia + KopiaUI | Time Machine | Arq |
+|---|---|---|---|---|---|---|
+| Storage you own (S3, B2, …) | yes | yes | yes | yes | local or network disk only | yes |
+| Open repository format | restic's, with a published spec | same | same | Kopia's own | Apple's | Arq's own |
+| Scheduling built in | yes, catches up after sleep | no | yes | yes | yes | yes |
+| Interface | TUI and menu bar | command line | web | desktop app | system UI | desktop app |
+| Credentials handled | Keychain, per-machine keys made for you | you decide | in its config | in its config | n/a | in the app |
+| Several machines from one place | yes, paired daemons | by hand | not checked | per machine | no | per machine |
+| Diff a backed-up file or folder against the live disk | yes | between snapshots only | not that I know of | not that I know of | no | not that I know of |
+| Open source | yes | yes | yes | yes | no | no |
+
+The other tools' columns are my understanding as of November 2026, not a tested review; check their documentation before relying on a cell. Sources: [Backrest](https://garethgeorge.github.io/backrest), [Arq pricing](https://arqbackup.com/pricing/), [Time Machine](https://support.apple.com/en-us/104984), [Kopia](https://kopia.io/docs/), [restic](https://restic.readthedocs.io).
+
+What charm-bak deliberately doesn't do: it isn't an engine (restic is), it doesn't manage buckets beyond creating one, it doesn't mount snapshots as a drive yet, and its TUI and menu bar app are macOS only. Linux and Windows machines can be backed up as remotes; a desktop UI for them is far down the list.
+
+## Why restic
+
+A backup engine is the hard part, and restic has already done it well, in the open, under the BSD-2 licence. A new backup tool has no business reinventing that. charm-bak doesn't: everything below is restic's, and charm-bak is the layer around it.
+
+What restic does:
+
+- **Maps a filesystem onto cheap object storage.** It splits files into content-defined chunks, stores each chunk once and bundles them into larger files, so a backup uploads only what changed, a moved or renamed file costs nothing, and a year of hourly snapshots takes little more than one.
+- **Encrypts everything on your machine** before it leaves, so the storage provider only ever holds ciphertext.
+- **Compresses** what it stores.
+- **Talks to almost any storage:** a local disk, SFTP, its own REST server, Amazon S3 and S3-compatible services, Backblaze B2, Azure, Google Cloud Storage, and anything [rclone](https://rclone.org) reaches.
+- **Keeps every snapshot whole and browsable:** list, search, read a single file, compare two snapshots, restore all or part of one, or mount the repository as a folder.
+- **Ages out old snapshots** by hourly, daily, weekly, monthly and yearly rules, and reclaims the space.
+- **Checks itself:** verifies the repository's structure and reads back stored data, and has commands to repair it.
+- **Edits history when you need it to:** rewrite snapshots to drop something that shouldn't have been backed up, or copy snapshots to another repository.
+- **Lets several machines share one repository,** with locking so they don't trip over each other.
+
+And why it's the engine to trust with years of history:
+
+- **A documented format.** restic publishes a byte-level specification of its repository, detailed enough that an independent implementation exists. Your backups don't depend on any one program being around to read them.
+- **Careful releases.** When a bug can put data at risk, restic's changelog says who's affected, how to check and how to repair. Since 0.16.4 it verifies each file's data before uploading it.
+- **A long record.** It has been developed in the open since 2014, by a small team and a large community.
+- **Built to be driven.** A plain command line with JSON output, so charm-bak runs it without reaching into its internals, and you can always run it yourself.
+
+charm-bak uses most of this today. Mounting isn't wired up yet; until it is, `restic mount` works on any charm-bak repository by hand. Details of every feature are in [restic's documentation](https://restic.readthedocs.io).
+
+## How it's built
+
+Three parts, deliberately separate:
+
+- **`charm-bak-daemon`** (Go) owns everything on its machine: sources, schedule, retention, history, the repository and its credentials, and every restic call. The same code runs on the Mac and on remotes.
+- **`charm-bak.app`** (Swift, thin) is the menu bar icon, notifications and login item. It carries the daemon inside its bundle and starts it as a child, so the daemon inherits the app's Full Disk Access.
+- **The TUI** (Go, [Bubble Tea](https://github.com/charmbracelet/bubbletea)) is a pure client. It holds no credentials and never touches the repository; it talks to the daemon over a Unix socket.
+
+Secrets stay on the machine that uses them: in the Keychain on a Mac, in root-only files on a Linux remote. They are handed to restic through its environment for that one process and never appear on a command line or in a log.
+
+`docs/design.md` covers the design, `docs/protocol.md` the socket protocol, and `AGENTS.md` the running record of decisions.
+
+## Install
+
+There are no prebuilt releases yet; build from source.
+
+Requirements:
+
+- macOS 14 or later
+- [restic](https://restic.net) 0.19 or later (`brew install restic`)
+- Go 1.26 and Xcode's command line tools
+- a code-signing identity (a free Apple Development certificate is enough)
+
+```sh
+git clone https://github.com/alokdhir/charm-bak.git
+cd charm-bak
+app/build.sh
+open ~/Applications/charm-bak.app
+```
+
+`app/build.sh` builds the app, the daemon and the TUI, signs them, installs `~/Applications/charm-bak.app`, and links `charm-bak` onto your PATH if `/usr/local/bin` is writable. Set `SIGN_ID` to choose the identity. Keep the same identity across builds: macOS ties Full Disk Access to it.
+
+Then:
+
+1. Grant **Full Disk Access** to charm-bak in System Settings › Privacy & Security, so it can read Documents, Mail and the like. The menu warns while it's missing.
+2. Choose **Open TUI** from the menu bar icon, or run `charm-bak`. Setup opens by itself.
+3. Tick the folders to back up.
+
+To try the interface without setting anything up, `go run . --fake` runs the TUI on fixture data.
+
+## Remotes and your network
+
+One Mac is in charge. It runs the TUI and the menu bar app, and its daemon configures and follows every remote. Each remote runs the same daemon, backing up to its own repository on its own schedule and with its own credentials. The Mac also reads every remote's repository directly, so a remote that's off or broken can still be browsed and restored from.
+
+```
+ your Mac, in charge                                  each remote: Linux or another Mac
+┌─────────────────────────────┐                      ┌─────────────────────────────┐
+│ TUI, menu bar               │                      │ charm-bak-daemon            │
+│   │ Unix socket             │                      │ its own sources, schedule   │
+│   ▼                         │                      │ and credentials; backs up   │
+│ charm-bak-daemon            │ ──── TCP 7457 ─────▶ │ on its own, whether the     │
+│                             │     mutual TLS:      │ Mac is on or not            │
+│                             │     configure it,    │                             │
+│                             │     follow its jobs, │                             │
+│                             │     send updates     │                             │
+└───────┬─────────────┬───────┘                      └──────────────┬──────────────┘
+        │ backs up    │ reads, to browse and restore                │ backs up
+        ▼             │ (even while the remote is down)             ▼
+ ┌─────────────┐      └───────────────────────────────────▶ ┌─────────────────┐
+ │ Mac's repo  │                                            │ remote's repo   │
+ └─────────────┘            storage you own                 └─────────────────┘
+```
+
+Adding a remote needs two connections to get through any firewall between the machines:
+
+| Port | Direction | When | What |
+|---|---|---|---|
+| TCP **7457** | Mac → remote | always | The Mac's daemon connects to the remote's to configure it, follow its jobs and send updates. The remote listens here; nothing else does. |
+| TCP **7458** | remote → Mac | only while Add Remote is open | The remote fetches its installer and daemon from the Mac and pairs. The Mac stops listening when pairing ends. |
+
+Port 7457 is TLS between keys pinned at pairing, so a device that isn't paired gets nothing from it. Port 7458 serves the installer only to whoever has the one-time code in the command you paste. If the remote runs a host firewall (`ufw`, `firewalld`, the macOS firewall), allow inbound TCP 7457 from the Mac. Each machine also needs its own outbound route to the storage it backs up to; backups don't pass through the Mac.
+
+The Mac finds a remote at the address it had when paired. If that changes, `e` on the remote's header has an Address tab. A remote that's off or unreachable is retried every few seconds and picked up when it's back; meanwhile its backups stay browsable and restorable from the Mac.
+
+## Keys
+
+| Key | Does |
+|---|---|
+| `←` `→` `↑` `↓` | move between and within columns |
+| `a` `e` `x` | add, edit, remove (a source, or what's selected) |
+| `b` | back up now |
+| `r` | restore (Snapshots, Files); add a remote (Sources) |
+| `c` | what a snapshot changed since the one before |
+| `d` | diff a file or folder against the live disk |
+| `p` | pin a snapshot |
+| `i` or space | info, Quick Look style |
+| `^T` `^N` | running jobs, past notifications |
+| `?` | everything else |
+
+## What's rough
+
+- **Mounting snapshots as a folder isn't in the TUI.** restic can do it, and you can run it by hand against this Mac's repository; see [Mounting by hand](#mounting-by-hand).
+- **No prebuilt, notarized release.** You build and sign it yourself for now.
+- **Linux and Windows desktops** have no UI of their own; they are remotes of a Mac.
+
+## Mounting by hand
+
+restic can mount the whole repository as a read-only folder, with every snapshot inside it as ordinary files: handy for opening old versions in other apps, or comparing folders with your usual diff tool. charm-bak doesn't do this from the TUI yet, but its repository is a plain restic repository, so you can:
+
+1. Install [macFUSE](https://macfuse.github.io) and allow its system extension in System Settings › Privacy & Security. On Apple Silicon that means a restart.
+2. In a terminal, give restic the repository and its credentials, mount it, and leave that terminal running:
+
+   ```sh
+   eval "$(charm-bak -env)"        # this Mac's repository; the password and key come from the Keychain
+   mkdir -p ~/charm-bak-mount
+   restic mount ~/charm-bak-mount
+   ```
+
+3. Open `~/charm-bak-mount` in Finder. `snapshots/` has one folder per snapshot, by time, holding the full paths that were backed up; `tags/` groups them by source (`src:<id>`, the Tag in a source's info panel). To mount one source only, add `--tag src:<id>` to the `restic mount` line.
+4. When you're done, press Ctrl-C in that terminal to unmount. restic holds a lock on the repository while it's mounted, so don't leave it mounted: charm-bak's weekly cleanup can't run until it's gone.
+
+`charm-bak -env` covers this Mac's repository. The same `eval` line works for running any other restic command by hand, too. restic's own guide: [mounting a repository](https://restic.readthedocs.io/en/stable/050_restore.html#restore-using-mount). charm-bak hasn't tested `restic mount` on recent macOS versions.
+
+## Development
+
+```sh
+go build ./... && go vet ./... && gofmt -l . && go test ./...
+go test -race ./internal/daemon ./internal/client
+cd app && swift test
+```
+
+The daemon's tests run real restic against temporary folders. Nothing in the test suite touches your repository, Keychain or AWS account.
+
+## Licence
+
+MIT. See `LICENSE`. restic is BSD-2-Clause and is not bundled; charm-bak runs the `restic` you install.

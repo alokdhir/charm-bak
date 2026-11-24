@@ -1,0 +1,20 @@
+{
+  "request": {
+    "id": 9,
+    "method": "hello",
+    "params": {
+      "protocol": 2,
+      "client": "charm-bak-tui 0.9.0"
+    }
+  },
+  "reply": {
+    "id": 9,
+    "error": {
+      "code": "unsupported_protocol",
+      "message": "This app speaks protocol 1; update charm-bak.",
+      "data": {
+        "protocol": 1
+      }
+    }
+  }
+}

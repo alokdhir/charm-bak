@@ -1,0 +1,13 @@
+{
+  "request": {
+    "id": 1,
+    "method": "cancel",
+    "params": {
+      "job": "j-42"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {}
+  }
+}

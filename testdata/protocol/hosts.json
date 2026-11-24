@@ -1,0 +1,29 @@
+{
+  "request": {
+    "id": 1,
+    "method": "hosts"
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "hosts": [
+        {
+          "name": "studio",
+          "local": true,
+          "address": "",
+          "state": "ok",
+          "error": "",
+          "last_seen": null
+        },
+        {
+          "name": "pantry",
+          "local": false,
+          "address": "pantry.lan:7457",
+          "state": "unreachable",
+          "error": "connection refused",
+          "last_seen": "2026-11-20T18:00:00-05:00"
+        }
+      ]
+    }
+  }
+}

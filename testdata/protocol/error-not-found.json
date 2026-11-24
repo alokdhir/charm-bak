@@ -1,0 +1,16 @@
+{
+  "request": {
+    "id": 9,
+    "method": "snapshots",
+    "params": {
+      "source": "zzzz"
+    }
+  },
+  "reply": {
+    "id": 9,
+    "error": {
+      "code": "not_found",
+      "message": "No source with id zzzz."
+    }
+  }
+}

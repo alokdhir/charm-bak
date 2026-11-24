@@ -1,0 +1,34 @@
+{
+  "request": {
+    "id": 1,
+    "method": "ls",
+    "params": {
+      "snapshot": "2438fde6",
+      "path": "/Users/alok/src/charm-bak",
+      "limit": 1000
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "entries": [
+        {
+          "name": "internal",
+          "type": "dir",
+          "size": 0,
+          "mode": "drwxr-xr-x",
+          "mtime": "2026-11-18T09:14:03-05:00"
+        },
+        {
+          "name": "go.mod",
+          "type": "file",
+          "size": 410,
+          "mode": "-rw-r--r--",
+          "mtime": "2026-11-17T22:01:55-05:00"
+        }
+      ],
+      "total": 2,
+      "next_offset": null
+    }
+  }
+}

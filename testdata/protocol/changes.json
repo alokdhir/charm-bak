@@ -1,0 +1,30 @@
+{
+  "request": {
+    "id": 1,
+    "method": "changes",
+    "params": {
+      "snapshot": "2438fde6f0ab7a4f56bb01e14c622cf15b71a19b189563de9dbf0c30222ffbc4",
+      "base": "9d1c0a3e5b7f2a4c6e8d0b1f3a5c7e9d2b4f6a8c0e1d3f5b7a9c2e4d6f8b0a1c"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "changes": [
+        {
+          "path": "/Users/alok/src/app.go",
+          "change": "changed"
+        },
+        {
+          "path": "/Users/alok/src/notes/",
+          "change": "added"
+        }
+      ],
+      "added": 1,
+      "removed": 0,
+      "changed": 1,
+      "touched": 0,
+      "bytes_added": 52311
+    }
+  }
+}

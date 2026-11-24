@@ -1,0 +1,13 @@
+{
+  "event": {
+    "event": "host_changed",
+    "host_info": {
+      "name": "pantry",
+      "local": false,
+      "address": "pantry.lan:7457",
+      "state": "ok",
+      "error": "",
+      "last_seen": "2026-11-20T18:00:00-05:00"
+    }
+  }
+}

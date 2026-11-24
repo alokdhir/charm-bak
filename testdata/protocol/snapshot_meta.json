@@ -1,0 +1,21 @@
+{
+  "request": {
+    "id": 1,
+    "method": "snapshot_meta",
+    "params": {
+      "source": "3f9a"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "pinned": [
+        "2438fde6f0ab7a4f56bb01e14c622cf15b71a19b189563de9dbf0c30222ffbc4"
+      ],
+      "notes": {
+        "2438fde6f0ab7a4f56bb01e14c622cf15b71a19b189563de9dbf0c30222ffbc4": "before refactor"
+      },
+      "added": {}
+    }
+  }
+}

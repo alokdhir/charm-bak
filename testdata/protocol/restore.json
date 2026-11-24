@@ -1,0 +1,25 @@
+{
+  "request": {
+    "id": 1,
+    "method": "restore",
+    "params": {
+      "snapshot": "2438fde6",
+      "paths": [
+        "/Users/alok/src/charm-bak/go.mod"
+      ],
+      "target": "original",
+      "overwrite": "if_newer"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "job": {
+        "id": "j-43",
+        "kind": "restore",
+        "source": "3f9a",
+        "started": "2026-11-19T12:00:42-05:00"
+      }
+    }
+  }
+}

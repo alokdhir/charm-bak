@@ -1,0 +1,9 @@
+{
+  "event": {
+    "event": "aws_step",
+    "for": "wren",
+    "step": "signed_in",
+    "account": "123456789012",
+    "bucket": "charm-bak-123456789012"
+  }
+}

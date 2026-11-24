@@ -1,0 +1,25 @@
+{
+  "request": {
+    "id": 9,
+    "method": "ls",
+    "params": {
+      "snapshot": "2438fde6",
+      "path": "/Users/alok/src"
+    }
+  },
+  "reply": {
+    "id": 9,
+    "error": {
+      "code": "busy",
+      "message": "The repository is being pruned (started 12:00); try again when it finishes.",
+      "data": {
+        "job": {
+          "id": "j-50",
+          "kind": "prune",
+          "source": null,
+          "started": "2026-11-19T12:00:00-05:00"
+        }
+      }
+    }
+  }
+}

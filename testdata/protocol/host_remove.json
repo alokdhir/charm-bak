@@ -1,0 +1,16 @@
+{
+  "request": {
+    "id": 1,
+    "method": "host_remove",
+    "params": {
+      "name": "charmtest",
+      "delete_backups": true
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "uninstalled": true
+    }
+  }
+}

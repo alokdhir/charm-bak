@@ -1,0 +1,10 @@
+{
+  "request": {
+    "id": 1,
+    "method": "access_settings"
+  },
+  "reply": {
+    "id": 1,
+    "result": {}
+  }
+}

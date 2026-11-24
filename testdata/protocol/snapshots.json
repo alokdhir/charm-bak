@@ -1,0 +1,38 @@
+{
+  "request": {
+    "id": 1,
+    "method": "snapshots",
+    "params": {
+      "source": "3f9a"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "snapshots": [
+        {
+          "id": "2438fde6f0ab7a4f56bb01e14c622cf15b71a19b189563de9dbf0c30222ffbc4",
+          "short_id": "2438fde6",
+          "time": "2026-11-19T12:00:00-05:00",
+          "end": "2026-11-19T12:00:42-05:00",
+          "paths": [
+            "/Users/alok/src"
+          ],
+          "hostname": "studio.local",
+          "tags": [
+            "src:3f9a"
+          ],
+          "files": 1832,
+          "bytes": 41234567,
+          "bytes_added": 52311,
+          "kept_by": [
+            "last snapshot",
+            "daily snapshot"
+          ],
+          "pinned": false,
+          "note": ""
+        }
+      ]
+    }
+  }
+}

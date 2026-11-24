@@ -1,0 +1,32 @@
+{
+  "request": {
+    "id": 1,
+    "method": "diff",
+    "params": {
+      "snapshot": "2438fde6",
+      "path": "/Users/alok/src/charm-bak"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "entries": [
+        {
+          "name": "go.mod",
+          "type": "file",
+          "change": "changed"
+        },
+        {
+          "name": "notes.md",
+          "type": "file",
+          "change": "added"
+        },
+        {
+          "name": "internal",
+          "type": "dir",
+          "change": "same"
+        }
+      ]
+    }
+  }
+}

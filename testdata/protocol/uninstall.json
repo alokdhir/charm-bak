@@ -1,0 +1,13 @@
+{
+  "request": {
+    "id": 1,
+    "method": "uninstall",
+    "params": {
+      "delete_backups": true
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {}
+  }
+}

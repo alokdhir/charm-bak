@@ -1,0 +1,35 @@
+{
+  "request": {
+    "id": 1,
+    "method": "defaults_set",
+    "params": {
+      "schedule": {
+        "every": 1800
+      },
+      "excludes": [
+        "*.log"
+      ]
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "defaults": {
+        "schedule": {
+          "every": 1800
+        },
+        "retention": {
+          "last": 10,
+          "hourly": 24,
+          "daily": 7,
+          "weekly": 4,
+          "monthly": 12,
+          "yearly": 3
+        },
+        "excludes": [
+          "*.log"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "request": {
+    "id": 1,
+    "method": "aws_status"
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "cli": true,
+      "manager": {
+        "account": "123456789012",
+        "bucket": "charm-bak-123456789012",
+        "region": "us-east-1"
+      }
+    }
+  }
+}

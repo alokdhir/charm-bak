@@ -1,0 +1,20 @@
+{
+  "request": {
+    "id": 9,
+    "method": "backup_now",
+    "params": {
+      "source": "3f9a"
+    }
+  },
+  "reply": {
+    "id": 9,
+    "error": {
+      "code": "restic_failed",
+      "message": "restic couldn't reach the repository.",
+      "data": {
+        "exit": 1,
+        "stderr": "Fatal: unable to open config file: Stat: dial tcp: lookup s3.amazonaws.com: no such host"
+      }
+    }
+  }
+}

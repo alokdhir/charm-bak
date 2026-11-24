@@ -1,0 +1,20 @@
+{
+  "event": {
+    "event": "job_finished",
+    "run": {
+      "job": "j-42",
+      "kind": "backup",
+      "source": "3f9a",
+      "started": "2026-11-19T12:00:00-05:00",
+      "ended": "2026-11-19T12:00:42-05:00",
+      "status": "ok",
+      "files_new": 3,
+      "files_changed": 12,
+      "bytes_added": 52311,
+      "files": 1832,
+      "bytes": 41234567,
+      "snapshot": "2438fde6f0ab7a4f56bb01e14c622cf15b71a19b189563de9dbf0c30222ffbc4",
+      "error": ""
+    }
+  }
+}

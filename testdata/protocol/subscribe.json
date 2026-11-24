@@ -1,0 +1,10 @@
+{
+  "request": {
+    "id": 1,
+    "method": "subscribe"
+  },
+  "reply": {
+    "id": 1,
+    "result": {}
+  }
+}

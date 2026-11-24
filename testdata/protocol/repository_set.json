@@ -1,0 +1,43 @@
+{
+  "request": {
+    "id": 1,
+    "method": "repository_set",
+    "params": {
+      "location": "s3:s3.amazonaws.com/charm-bak/pantry",
+      "password": "example-password-not-real",
+      "aws_key": "AKIAEXAMPLEEXAMPLE00:example-secret-not-real",
+      "init": true
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "repository": {
+        "location": "s3:s3.amazonaws.com/charm-bak/pantry",
+        "password_from": "file /var/lib/charm-bak/repo-password",
+        "aws_from": "file /var/lib/charm-bak/aws",
+        "stored_bytes": 0,
+        "logical_bytes": 0,
+        "last_prune": null,
+        "last_check": null,
+        "next_maintenance": "2026-11-22T14:00:00-05:00"
+      },
+      "defaults": {
+        "schedule": {
+          "every": 3600
+        },
+        "retention": {
+          "last": 10,
+          "hourly": 24,
+          "daily": 7,
+          "weekly": 4,
+          "monthly": 12,
+          "yearly": 3
+        },
+        "excludes": [
+          "*.log"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "request": {
+    "id": 9,
+    "method": "host_repair",
+    "params": {
+      "name": "basement"
+    }
+  },
+  "reply": {
+    "id": 9,
+    "result": {
+      "command": "curl -fsS --pinnedpubkey 'sha256//47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' -k https://192.168.1.2:7458/i/MFRGGZDFMZTWQ2LK | sudo sh",
+      "expires": "2026-11-23T18:20:00-05:00"
+    }
+  }
+}
