@@ -86,14 +86,22 @@ func FindRestic() string {
 }
 
 // systemRestic is an installed restic: Homebrew's, the usual folders, or
-// on PATH; "" if there's none.
+// on PATH; "" if there's none. A daemon running as root (a remote) only
+// takes one that only root can change (rootOnly): Homebrew's folders
+// belong to the user who installed it, and a restic they could replace
+// would run as root, with Full Disk Access on a Mac. Without one it gets
+// its own copy, in its root-only state folder.
 func systemRestic() string {
+	ok := func(p string) bool {
+		fi, err := os.Stat(p)
+		return err == nil && fi.Mode()&0o111 != 0 && (!asRoot() || rootOnly(p))
+	}
 	for _, p := range []string{"/opt/homebrew/bin/restic", "/usr/local/bin/restic", "/usr/bin/restic"} {
-		if fi, err := os.Stat(p); err == nil && fi.Mode()&0o111 != 0 {
+		if ok(p) {
 			return p
 		}
 	}
-	if p, err := exec.LookPath("restic"); err == nil {
+	if p, err := exec.LookPath("restic"); err == nil && ok(p) {
 		return p
 	}
 	return ""
@@ -147,7 +155,12 @@ type output struct {
 
 const stderrKeep = 8 << 10
 
-// run runs restic. With onLine, stdout is streamed line by line instead
+// run runs restic. Every call ends its options with "--" before snapshot
+// IDs and paths: those can come from a repository another machine writes
+// (a remote's, which this Mac reads), and one that looked like an option
+// ("--password-command=…") would otherwise be one.
+//
+// With onLine, stdout is streamed line by line instead
 // of kept. With limit > 0, restic is stopped once that much stdout is in.
 // Cancelling ctx sends SIGINT, which lets restic remove its lock.
 func (r *ResticEngine) run(ctx context.Context, args []string, onLine func([]byte), limit int, ok ...int) (output, error) {
@@ -475,7 +488,10 @@ type resticNode struct {
 // nodes is `restic ls` without --recursive: the node at p, plus its
 // children when it's a directory.
 func (r *ResticEngine) nodes(ctx context.Context, snapshot, p string) ([]resticNode, error) {
-	out, err := r.run(ctx, []string{noLock, "ls", "--json", snapshot, p}, nil, 0)
+	if err := treeArgs(snapshot, p); err != nil {
+		return nil, err
+	}
+	out, err := r.run(ctx, []string{noLock, "ls", "--json", "--", snapshot, p}, nil, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +554,7 @@ func (r *ResticEngine) Stats(ctx context.Context) (RepoStats, error) {
 // ~100k files, against about a second for each single folder).
 func (r *ResticEngine) Tree(ctx context.Context, snapshot string) (map[string][]protocol.Entry, error) {
 	dirs := map[string][]protocol.Entry{"/": {}}
-	_, err := r.run(ctx, []string{noLock, "ls", "--json", snapshot}, func(line []byte) {
+	_, err := r.run(ctx, []string{noLock, "ls", "--json", "--", snapshot}, func(line []byte) {
 		var n resticNode
 		if json.Unmarshal(line, &n) != nil || n.MessageType != "node" || n.Path == "" {
 			return
@@ -594,12 +610,15 @@ func sortEntries(entries []protocol.Entry) {
 // thrown away.
 func (r *ResticEngine) Read(ctx context.Context, snapshot, file string, max int) ([]byte, int64, error) {
 	want := clean(file)
+	if err := treeArgs(snapshot, want); err != nil {
+		return nil, 0, err
+	}
 	var out output
 	var dumpErr error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		out, dumpErr = r.run(ctx, []string{noLock, "dump", snapshot, want}, nil, max)
+		out, dumpErr = r.run(ctx, []string{noLock, "dump", "--", snapshot, want}, nil, max)
 	}()
 	all, err := r.nodes(ctx, snapshot, want)
 	<-done
@@ -663,6 +682,7 @@ func (r *ResticEngine) Backup(ctx context.Context, spec BackupSpec, progress fun
 	for _, e := range spec.Excludes {
 		args = append(args, exclude, nativeExclude(e))
 	}
+	args = append(args, "--")
 	for _, p := range spec.Paths {
 		args = append(args, nativePath(p))
 	}
@@ -750,6 +770,24 @@ func unreadText(item, msg string) string {
 		}
 	}
 	return item + " (" + reason + ")"
+}
+
+// treeArgs refuses what can't be a snapshot ID or a path in a snapshot
+// before it reaches restic: a snapshot ID is hex (restic's own, or a
+// prefix of one), a path is absolute. Both can come from a repository
+// another machine writes (a remote's snapshot paths, which this Mac
+// reads); with "--" they can't be options anyway, and this keeps them
+// from being anything else either.
+func treeArgs(snapshot string, paths ...string) error {
+	if snapshot == "" || strings.Trim(strings.ToLower(snapshot), "0123456789abcdef") != "" {
+		return &EngineError{Kind: ErrNotFound, Message: fmt.Sprintf("%q isn't a snapshot ID.", snapshot)}
+	}
+	for _, p := range paths {
+		if !strings.HasPrefix(p, "/") {
+			return &EngineError{Kind: ErrNotFound, Message: fmt.Sprintf("%q isn't an absolute path.", p)}
+		}
+	}
+	return nil
 }
 
 // keepFlags is forget's policy, or nil when every count is zero.
@@ -843,7 +881,7 @@ func (r *ResticEngine) Forget(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	_, err := r.run(ctx, append([]string{"forget"}, ids...), nil, 0)
+	_, err := r.run(ctx, append([]string{"forget", "--"}, ids...), nil, 0)
 	return err
 }
 
@@ -907,7 +945,7 @@ func (r *ResticEngine) Rewrite(ctx context.Context, tag string, excludes []strin
 }
 
 func (r *ResticEngine) Added(ctx context.Context, from, to string) (int64, error) {
-	out, err := r.run(ctx, []string{noLock, "diff", "--json", from, to}, nil, 0)
+	out, err := r.run(ctx, []string{noLock, "diff", "--json", "--", from, to}, nil, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -931,7 +969,7 @@ func (r *ResticEngine) Added(ctx context.Context, from, to string) (int64, error
 // changed), then the statistics. Touched folders are left out: a folder
 // is touched whenever anything inside it is.
 func (r *ResticEngine) Changes(ctx context.Context, from, to string) (EngineChanges, error) {
-	out, err := r.run(ctx, []string{noLock, "diff", "--metadata", "--json", from, to}, nil, 0)
+	out, err := r.run(ctx, []string{noLock, "diff", "--metadata", "--json", "--", from, to}, nil, 0)
 	if err != nil {
 		return EngineChanges{}, err
 	}
@@ -1002,6 +1040,9 @@ func restoreBase(paths []string) string {
 }
 
 func (r *ResticEngine) Restore(ctx context.Context, snapshot string, paths []string, target, overwrite string, progress func(Progress)) error {
+	if err := treeArgs(snapshot, paths...); err != nil {
+		return err
+	}
 	mode := "if-newer"
 	switch overwrite {
 	case protocol.OverwriteNever:
@@ -1016,12 +1057,13 @@ func (r *ResticEngine) Restore(ctx context.Context, snapshot string, paths []str
 		target = base
 	}
 	target = nativePath(target)
-	args := []string{"restore", "--json", snapshot + ":" + base, "--target", target, "--overwrite", mode}
+	args := []string{"restore", "--json", "--target", target, "--overwrite", mode}
 	for _, p := range paths {
 		if rel := strings.TrimPrefix(p, base); rel != "" && rel != "/" {
 			args = append(args, "--include", literalPattern("/"+strings.TrimPrefix(rel, "/")))
 		}
 	}
+	args = append(args, "--", snapshot+":"+base)
 	_, err := r.run(ctx, args, func(line []byte) {
 		var s statusLine
 		if json.Unmarshal(line, &s) == nil && s.MessageType == "status" && progress != nil {

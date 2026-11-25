@@ -182,6 +182,9 @@ func lanAddress() (string, error) {
 var installScript = template.Must(template.New("install").Parse(`#!/bin/sh
 {{if .Repair}}# charm-bak: reinstall this machine's backup daemon (controlled by {{.Controller}}),
 # keeping its state: database, keys, pairing.{{else}}# charm-bak: install this machine's backup daemon and pair it with {{.Controller}}.{{end}}
+# All in one function, called on the last line: the script is piped into
+# sh, and a connection cut part way would otherwise run the part that came.
+main() {
 set -eu
 [ "$(id -u)" = 0 ] || { echo "charm-bak: run this as root (... | sudo sh)" >&2; exit 1; }
 if [ "$(uname -s)" = Darwin ]; then
@@ -222,7 +225,7 @@ if [ "$(uname -s)" = Darwin ]; then
     <string>-socket</string><string>/var/run/charm-bak/daemon.sock</string>
   </array>
   <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+  <dict><key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>StandardErrorPath</key><string>$dir/state/daemon.log</string>
@@ -275,6 +278,8 @@ systemctl daemon-reload
 systemctl enable charm-bak.service
 systemctl restart charm-bak.service
 {{if .Repair}}echo "charm-bak: {{.Name}}'s daemon is reinstalled and running (systemctl status charm-bak)."{{else}}echo "charm-bak: {{.Name}} is paired with {{.Controller}} and running (systemctl status charm-bak)."{{end}}
+}
+main "$@"
 `))
 
 func (c *Core) pairScript(addr string) http.HandlerFunc {

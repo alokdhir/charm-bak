@@ -242,6 +242,8 @@ func (c *Core) runNextLocked() {
 	c.publish(protocol.Event{Name: protocol.EventJobStarted, JobStarted: &protocol.JobStartedEvent{Job: job}})
 	c.publish(protocol.Event{Name: protocol.EventStateChanged, StateChanged: &protocol.StateChangedEvent{State: c.stateLocked(), Job: &job}})
 	go func() {
+		// A machine getting its own restic at start: wait for that first.
+		waitRestic(ctx)
 		o := p.work(ctx, job)
 		if ctx.Err() != nil && o.status == protocol.RunFailed {
 			// Cancelled; what it had already made (a backup cancelled
@@ -397,6 +399,7 @@ func (c *Core) Tick() {
 		}
 	}
 	c.mu.Unlock()
+	retryRestic(now)
 	for _, s := range due {
 		c.enqueueBackup(s)
 	}

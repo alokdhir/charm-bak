@@ -4,7 +4,7 @@ Backups for a Mac and the Linux, Mac and Windows machines around it, to storage 
 
 charm-bak is a menu bar app, a background daemon and a [Charm](https://charm.sh)-style TUI wrapped around [restic](https://restic.net). restic does the hard part: encrypted, deduplicated, compressed snapshots in S3, Backblaze B2, a drive, or anything else it supports. charm-bak does everything around it: scheduling, retention, credentials, a browser for your history, restore, diff, and running the same thing on other machines without SSH.
 
-> Status: 0.5, pre-release. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [Not there yet](#not-there-yet).
+> Status: 0.5.1, the initial release. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [Not there yet](#not-there-yet).
 
 ![charm-bak's TUI: a source's snapshots, each with how much it added, then the files in one snapshot and a preview of the selected file](docs/screenshot.png)
 
@@ -20,7 +20,9 @@ The tools that do have an interface each gave up something I wanted:
 - **Kopia** is a capable engine with its own scheduler and desktop app. charm-bak builds on restic instead: see [Why restic](#why-restic).
 - **Backrest** is a web UI and scheduler for restic. It suits a server you reach through a browser. I wanted something native to the Mac and to the terminal.
 
-charm-bak is the missing layer for someone who wants restic's engine, their own bucket, and no homework.
+What sets charm-bak apart is that it looks after every machine you have from one place. Your Mac is the control centre for any number of remotes: a Linux server, another Mac, a Windows PC. Each backs up on its own schedule with its own credentials, whether the Mac is on or not, and you add, configure, watch, browse and restore all of them from the one TUI, with no SSH and nothing to sign in to on each. A failure anywhere arrives as a notification on the Mac, and a machine that has died can still be browsed and restored from, because the Mac reads its backups directly.
+
+charm-bak is the missing layer for someone who wants restic's engine, their own bucket, every machine in one place, and no homework.
 
 ## What it does
 
@@ -122,6 +124,12 @@ To run the TUI as `charm-bak` from any terminal, link it onto your PATH:
 ln -s /Applications/charm-bak.app/Contents/MacOS/charm-bak-tui /usr/local/bin/charm-bak
 ```
 
+### Already using restic?
+
+Point setup at your existing repository: it finds the repository there and asks for its password instead of making a new one. Every snapshot in it shows up, under "untagged" for the ones charm-bak didn't make, ready to browse, compare and restore. Add sources with the picker and charm-bak takes over from there.
+
+One thing to settle: if your own scripts keep running `restic forget`, their rules apply to charm-bak's snapshots too, since a plain `forget` covers the whole repository. charm-bak's own `forget` only ever touches the snapshots it made. Retire the old jobs once charm-bak runs your backups, so two schedulers aren't pruning one repository.
+
 ### Building from source
 
 Requirements: macOS 14 or later, Go 1.26 and Xcode's command line tools, and a code-signing identity (a free Apple Development certificate is enough).
@@ -136,6 +144,21 @@ open ~/Applications/charm-bak.app
 `app/build.sh` builds the app, the daemon and the TUI, signs them, installs `~/Applications/charm-bak.app`, and links `charm-bak` onto your PATH if `/usr/local/bin` is writable. Set `SIGN_ID` to choose the identity. Keep the same identity across builds: macOS ties Full Disk Access to it. `scripts/release.sh` makes a release: universal, signed with a Developer ID, notarized and zipped.
 
 To try the interface without setting anything up, `go run . --fake` runs the TUI on fixture data.
+
+## Storage and keys
+
+Each machine has a repository of its own, in any storage restic supports. For Amazon S3, setup can make the keys for you; for everything else (Backblaze B2, other S3-compatible services, Azure, Google Cloud Storage, SFTP, a REST server, a drive) you make a key in that service's console and paste it in. For B2, an application key limited to the bucket, and to a name prefix per machine, keeps each machine to its own backups.
+
+### AWS keys made for you
+
+Pick S3, then **Sign in to AWS**. charm-bak runs `aws login` in your browser, into a throwaway configuration folder that's deleted afterwards: your own `~/.aws` is never read or changed, and the sign-in isn't kept. With it, charm-bak makes:
+
+- **The bucket**, if it isn't there yet: private, encrypted (SSE-S3), moving to S3 Intelligent-Tiering, with nothing that expires or archives objects (restic manages them). A bucket that exists is used as it is.
+- **A limit** (managed policy `charm-bak-boundary-<bucket>`): reading, writing and listing that one bucket is the most any machine's key can ever do.
+- **A key manager** (IAM user `charm-bak-manager`), whose key stays in your Mac's Keychain. It can only create, change and delete users under `/charm-bak/`, and only with that limit attached. It has no access to any bucket.
+- **The machine's own user** (`charm-bak-<machine>` under `/charm-bak/`), with a policy for its own folder in the bucket, `<bucket>/<machine>/`, and nothing else. Its key goes to that machine only, with a copy in your Mac's Keychain so the Mac can read that machine's backups.
+
+The next machine needs no sign-in: **Make <machine> a key** has the key manager make its user. Removing a machine and deleting its backups deletes its user too, if charm-bak made it. **I have a key** takes one you made yourself instead, and charm-bak then leaves your IAM users alone.
 
 ## Remotes and your network
 
@@ -185,6 +208,17 @@ The Mac finds a remote at the address it had when paired. If that changes, `e` o
 | `i` or space | info, Quick Look style |
 | `^T` `^N` | running jobs, past notifications |
 | `?` | everything else |
+
+## Security
+
+- **Secrets stay where they're used.** Repository passwords and storage keys live in the Mac's Keychain, and on a remote in files only root (Linux, macOS) or SYSTEM and Administrators (Windows) can read. They reach restic through that one process's environment, never a command line or a log. The TUI holds none: it talks to the daemon over a Unix socket only your user can open.
+- **Remotes are paired, not trusted by network.** Each daemon makes its own key (ECDSA P-256) the first time it starts; none ship with the app. The command you paste carries a one-time code (80 random bits, ten minutes, one use) and the Mac's key fingerprint, which `curl` checks before running anything. From then on the Mac and each remote talk only TLS 1.3 between keys pinned at pairing: port 7457 gives a device that isn't paired nothing at all.
+- **Updates to remotes** travel over that pinned connection and are checked against their hash before a remote swaps them in.
+- **restic itself**, when charm-bak fetches it, is checked against the checksums restic signs with its release key.
+- **A remote can't reach into the Mac.** The Mac reads each remote's backups itself, at the location it set them up at, and nothing a repository holds (snapshot IDs, paths, names) can turn into an option for restic or an escape sequence in your terminal.
+- **The app is signed with a Developer ID and notarized by Apple.**
+
+What it can't protect against: anything running as your user on the Mac can read your Keychain the way charm-bak does, as with any app that keeps keys there, and anyone with root on a machine has that machine's backups. Found a hole? Please report it privately through GitHub's security advisories for this repository rather than in an issue.
 
 ## Not there yet
 

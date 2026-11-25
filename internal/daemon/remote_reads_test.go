@@ -227,7 +227,7 @@ func TestRemoteReadsRelayWithoutSecrets(t *testing.T) {
 	}
 	// The location arrives with the first sync; still no password.
 	deadline := time.Now().Add(5 * time.Second)
-	for p.mac.remoteLocation("pantry") != "pantry-repo" {
+	for p.mac.remoteLocation("pantry") != "/srv/pantry-repo" {
 		if time.Now().After(deadline) {
 			t.Fatal("pantry's repository never saved")
 		}

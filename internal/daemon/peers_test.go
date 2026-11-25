@@ -35,7 +35,7 @@ func newRemotePair(t *testing.T, setup ...func(mac, pantry *Core)) *remotePair {
 	engine := func(RepositoryConfig) Engine { return &statsEngine{} }
 
 	pantryStore := memStore(t)
-	pantryStore.SetRepository(RepositoryConfig{Location: "pantry-repo"})
+	pantryStore.SetRepository(RepositoryConfig{Location: "/srv/pantry-repo"})
 	pantry := NewCore("test", pantryStore, engine, nil)
 	pantry.Name = "pantry"
 	pantryStore.AddPeer(Peer{Name: "studio", Pin: macID.Pin, Added: time.Now()})
@@ -92,7 +92,7 @@ func TestRelayToRemote(t *testing.T) {
 
 	pantry := p.tui.WithHost("pantry")
 	st := call[protocol.StatusResult](t, pantry, protocol.MethodStatus, nil)
-	if st.Repository == nil || st.Repository.Location != "pantry-repo" {
+	if st.Repository == nil || st.Repository.Location != "/srv/pantry-repo" {
 		t.Fatalf("status via relay: %+v", st.Repository)
 	}
 	src := call[protocol.SourceResult](t, pantry, protocol.MethodSourceAdd, protocol.SourceAddParams{Name: "videos", Paths: []string{"/srv/videos"}})

@@ -37,7 +37,14 @@ $exe = Join-Path $dir 'charm-bak-daemon.exe'
 if (Get-Service charm-bak -ErrorAction SilentlyContinue) { Stop-Service charm-bak -Force -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Force $dir, $state | Out-Null
 # State for SYSTEM and administrators only (by SID, so any language).
+# Anyone can create a folder in ProgramData, so one made here first by
+# another user would keep that user's own entries and, as its owner, the
+# right to change them: Administrators take it over, every existing entry
+# goes (/reset), then only the two grants remain.
+icacls $state /setowner '*S-1-5-32-544' /T /C | Out-Null
+icacls $state /reset /T /C | Out-Null
 icacls $state /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Host "charm-bak: couldn't restrict $state to administrators" -ForegroundColor Red; exit 1 }
 
 curl.exe -fsS --pinnedpubkey '{{.Pin}}' -k "https://{{.Addr}}/x/{{.Code}}/$arch" -o "$exe.new"
 if ($LASTEXITCODE -ne 0) { Write-Host "charm-bak: couldn't download the daemon from {{.Controller}}" -ForegroundColor Red; exit 1 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -28,8 +29,11 @@ import (
 // remote_cache keys.
 const (
 	cacheRepository = "repository" // protocol.RepositoryResult
-	cacheSources    = "sources"    // protocol.SourcesResult
-	cacheMeta       = "meta:"      // + source id: protocol.SnapshotMetaResult
+	// cacheSetupLocation is the location this Mac set a remote's
+	// repository up at (a JSON string): the one reads use.
+	cacheSetupLocation = "setup_location"
+	cacheSources       = "sources" // protocol.SourcesResult
+	cacheMeta          = "meta:"   // + source id: protocol.SnapshotMetaResult
 )
 
 // viewMissFor is how long "no secrets here for that remote" is believed
@@ -113,7 +117,21 @@ func (c *Core) remoteEngine(host string) (Engine, bool) {
 }
 
 // remoteLocation is where host's repository is, as last saved.
+// The location this Mac read a remote's repository at is one restic will
+// be run with here, as this user: a remote that could choose it could
+// choose one that runs a command (an sftp host like "-oProxyCommand=…",
+// an rclone remote made on the fly with its own ssh command). So it's the
+// location this Mac set the repository up at, when it did; otherwise
+// (set up before that was kept) what the remote reports, if it's a kind
+// that carries no command (safeRemoteLocation). Anything else is read
+// through the remote's daemon, as a remote configured by hand is.
 func (c *Core) remoteLocation(host string) string {
+	if raw, ok, err := c.store.RemoteCache(host, cacheSetupLocation); err == nil && ok {
+		var loc string
+		if json.Unmarshal(raw, &loc) == nil && loc != "" {
+			return loc
+		}
+	}
 	raw, ok, err := c.store.RemoteCache(host, cacheRepository)
 	if err != nil || !ok {
 		return ""
@@ -122,8 +140,50 @@ func (c *Core) remoteLocation(host string) string {
 	if json.Unmarshal(raw, &res) != nil || res.Repository == nil {
 		return ""
 	}
+	if !safeRemoteLocation(res.Repository.Location) {
+		logf("not reading %s's repository here: its location isn't one this Mac opens on a remote's word", host)
+		return ""
+	}
 	return res.Repository.Location
 }
+
+// safeRemoteLocation reports whether a repository location a remote
+// reported carries nothing restic would run: object storage and REST
+// servers by URL, an absolute folder, an sftp host that can't be read as
+// an option, an rclone remote by plain name (configured on this Mac).
+func safeRemoteLocation(loc string) bool {
+	if strings.ContainsAny(loc, " \t\n\r") {
+		return false
+	}
+	for _, p := range []string{"s3:", "b2:", "azure:", "gs:", "swift:", "rest:http://", "rest:https://"} {
+		if strings.HasPrefix(loc, p) && len(loc) > len(p) {
+			return !strings.HasPrefix(loc[len(p):], "-")
+		}
+	}
+	if strings.HasPrefix(loc, "/") {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(loc, "sftp:"); ok {
+		// sftp:user@host:/path or sftp://user@host:port//path: the user
+		// and host become ssh's arguments, so neither may look like an
+		// option.
+		rest = strings.TrimPrefix(rest, "//")
+		userHost, _, _ := strings.Cut(rest, "/")
+		userHost, _, _ = strings.Cut(userHost, ":")
+		user, host, hasUser := strings.Cut(userHost, "@")
+		if !hasUser {
+			host, user = user, ""
+		}
+		return host != "" && !strings.HasPrefix(host, "-") && !strings.HasPrefix(user, "-")
+	}
+	if rest, ok := strings.CutPrefix(loc, "rclone:"); ok {
+		name, _, found := strings.Cut(rest, ":")
+		return found && rcloneName.MatchString(name)
+	}
+	return false
+}
+
+var rcloneName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
 
 // forgetRemoteView drops what's worked out about opening host's
 // repository and its cached lists: its repository or secrets changed, or

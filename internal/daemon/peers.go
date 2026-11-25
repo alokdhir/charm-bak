@@ -491,11 +491,34 @@ func (c *Core) hosts() protocol.HostsResult {
 }
 
 // HostName is this machine's short name: "studio", not "studio.local".
+// It's kept to the letters, digits and hyphens a paired name may have
+// (ValidName): the name goes into the install scripts a remote runs, and
+// a host name can come from the network (DHCP, reverse DNS).
 func HostName() string {
 	h, _ := os.Hostname()
 	h, _, _ = strings.Cut(h, ".")
-	return strings.ToLower(h)
+	h = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		}
+		return '-'
+	}, h)
+	h = strings.Trim(h, "-")
+	if len(h) > 31 {
+		h = strings.TrimRight(h[:31], "-")
+	}
+	if !ValidName(h) {
+		return "mac"
+	}
+	return h
 }
+
+// ValidName reports whether name can name a machine: lowercase letters,
+// digits and hyphens, up to 31, starting with a letter or digit.
+func ValidName(name string) bool { return hostNameRE.MatchString(name) }
 
 // setHostAddress handles host_set: a remote's new address, saved and
 // reconnected to at once. The pin is unchanged, so a different machine

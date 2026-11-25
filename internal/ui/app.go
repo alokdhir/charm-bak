@@ -997,7 +997,7 @@ func (a *App) View() tea.View {
 	case a.modal != nil:
 		body = compositeOverlay(body, a.modal.view(a), a.width, a.bodyHeight())
 	}
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, hero, bar, body, footer))
+	return tea.NewView(scrubFrame(lipgloss.JoinVertical(lipgloss.Left, hero, bar, body, footer)))
 }
 
 // handleClick copies what was clicked: a row of the info popup, or the

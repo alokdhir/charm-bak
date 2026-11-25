@@ -67,8 +67,15 @@ func managedRestic() string {
 }
 
 // resticVersions caches `restic version` per binary and its mtime, so
-// FindRestic stays cheap on every call.
-var resticVersions sync.Map // path+mtime -> [3]int
+// FindRestic stays cheap on every call, failures included: a restic that
+// can't say its version (another CPU's build, a wrapper) isn't asked again
+// until the file changes.
+var resticVersions sync.Map // path+mtime -> versionResult
+
+type versionResult struct {
+	v  [3]int
+	ok bool
+}
 
 // resticVersion is the version a restic binary reports, or false.
 func resticVersion(bin string) ([3]int, bool) {
@@ -77,20 +84,17 @@ func resticVersion(bin string) ([3]int, bool) {
 		return [3]int{}, false
 	}
 	key := bin + "@" + fi.ModTime().String()
-	if v, ok := resticVersions.Load(key); ok {
-		return v.([3]int), true
+	if r, ok := resticVersions.Load(key); ok {
+		return r.(versionResult).v, r.(versionResult).ok
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "version").Output()
-	if err != nil {
-		return [3]int{}, false
+	var r versionResult
+	if out, err := exec.CommandContext(ctx, bin, "version").Output(); err == nil {
+		r.v, r.ok = parseResticVersion(string(out))
 	}
-	v, ok := parseResticVersion(string(out))
-	if ok {
-		resticVersions.Store(key, v)
-	}
-	return v, ok
+	resticVersions.Store(key, r)
+	return r.v, r.ok
 }
 
 // parseResticVersion reads "restic 0.19.1 compiled with go1.25 on …".
@@ -99,8 +103,14 @@ func parseResticVersion(s string) ([3]int, bool) {
 	if len(f) < 2 || f[0] != "restic" {
 		return [3]int{}, false
 	}
+	// Up to the first character that's neither a digit nor a dot:
+	// "0.18.0-dev", "0.18.1+ds" (Debian's) are 0.18.0 and 0.18.1.
+	num := f[1]
+	if i := strings.IndexFunc(num, func(r rune) bool { return (r < '0' || r > '9') && r != '.' }); i >= 0 {
+		num = num[:i]
+	}
 	var v [3]int
-	parts := strings.SplitN(strings.SplitN(f[1], "-", 2)[0], ".", 3)
+	parts := strings.SplitN(strings.TrimSuffix(num, "."), ".", 3)
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil {
@@ -120,6 +130,91 @@ func versionAtLeast(v, min [3]int) bool {
 	return true
 }
 
+// resticUsable reports whether this machine has a restic charm-bak can
+// use: an installed one that's recent enough, or the daemon's own.
+func resticUsable() bool {
+	if sys := systemRestic(); sys != "" {
+		if v, ok := resticVersion(sys); ok && versionAtLeast(v, resticMin) {
+			return true
+		}
+	}
+	return managedRestic() != ""
+}
+
+// The first download attempt at start: jobs wait for it (waitRestic), so
+// a backup that's overdue at start doesn't fail for want of a restic
+// that's seconds away. Later attempts come from the scheduler, with
+// backoff (retryRestic).
+var (
+	resticSettled     = make(chan struct{})
+	resticSettledOnce sync.Once
+	resticRetry       struct {
+		sync.Mutex
+		running bool
+		next    time.Time
+		wait    time.Duration
+	}
+)
+
+// settleRestic marks the first attempt done, however it went.
+func settleRestic() { resticSettledOnce.Do(func() { close(resticSettled) }) }
+
+// waitRestic waits for the first download attempt, if one is under way.
+func waitRestic(ctx context.Context) {
+	if managedResticDir == "" || runtime.GOOS == "windows" {
+		return
+	}
+	select {
+	case <-resticSettled:
+	case <-ctx.Done():
+	}
+}
+
+// StartRestic is the first attempt, at start; jobs wait for it.
+func StartRestic(ctx context.Context) {
+	defer settleRestic()
+	if err := EnsureRestic(ctx); err != nil {
+		scheduleResticRetry(time.Now())
+	}
+}
+
+// scheduleResticRetry sets the next attempt: a minute after the first
+// failure, doubling to an hour.
+func scheduleResticRetry(now time.Time) {
+	resticRetry.Lock()
+	defer resticRetry.Unlock()
+	resticRetry.wait = min(max(resticRetry.wait*2, time.Minute), time.Hour)
+	resticRetry.next = now.Add(resticRetry.wait)
+}
+
+// retryRestic downloads restic again, from the scheduler, when there's
+// still none usable and the backoff allows.
+func retryRestic(now time.Time) {
+	if managedResticDir == "" || runtime.GOOS == "windows" || resticUsable() {
+		return
+	}
+	resticRetry.Lock()
+	if resticRetry.running || now.Before(resticRetry.next) {
+		resticRetry.Unlock()
+		return
+	}
+	resticRetry.running = true
+	resticRetry.Unlock()
+	go func() {
+		err := EnsureRestic(context.Background())
+		resticRetry.Lock()
+		resticRetry.running = false
+		resticRetry.Unlock()
+		if err != nil {
+			scheduleResticRetry(time.Now())
+		} else {
+			resticRetry.Lock()
+			resticRetry.wait = 0
+			resticRetry.Unlock()
+		}
+	}()
+}
+
 // EnsureRestic gives this machine a restic it can use: nothing to do when
 // one is installed and recent enough, or the daemon already has its own;
 // otherwise it downloads restic's latest release. Not on Windows, whose
@@ -128,12 +223,7 @@ func EnsureRestic(ctx context.Context) error {
 	if runtime.GOOS == "windows" || managedResticDir == "" {
 		return nil
 	}
-	if sys := systemRestic(); sys != "" {
-		if v, ok := resticVersion(sys); ok && versionAtLeast(v, resticMin) {
-			return nil
-		}
-	}
-	if managedRestic() != "" {
+	if resticUsable() {
 		return nil
 	}
 	logf("restic: none installed (or older than %d.%d.%d); downloading restic's own release", resticMin[0], resticMin[1], resticMin[2])
@@ -173,8 +263,11 @@ func downloadRestic(ctx context.Context, client *http.Client, api, web, dir stri
 	var rel struct {
 		Tag string `json:"tag_name"`
 	}
-	if err := json.Unmarshal(body, &rel); err != nil || !strings.HasPrefix(rel.Tag, "v") {
-		return "", fmt.Errorf("reading restic's latest release: %v", err)
+	if err := json.Unmarshal(body, &rel); err != nil {
+		return "", fmt.Errorf("reading restic's latest release: %w", err)
+	}
+	if !strings.HasPrefix(rel.Tag, "v") {
+		return "", fmt.Errorf("restic's latest release has an unexpected tag %q", rel.Tag)
 	}
 	ver := strings.TrimPrefix(rel.Tag, "v")
 	base := web + "/restic/restic/releases/download/" + rel.Tag + "/"
@@ -241,6 +334,10 @@ func verifyResticSignature(data, sig []byte) error {
 	keyring, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(resticKey))
 	if err != nil {
 		return err
+	}
+	// Only restic's key, as its installation docs give it.
+	if len(keyring) != 1 || !strings.EqualFold(hex.EncodeToString(keyring[0].PrimaryKey.Fingerprint), resticKeyFingerprint) {
+		return errors.New("the embedded key isn't restic's release key")
 	}
 	_, err = openpgp.CheckArmoredDetachedSignature(keyring, bytes.NewReader(data), bytes.NewReader(sig), nil)
 	return err

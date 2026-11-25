@@ -8,12 +8,14 @@ import (
 	"time"
 )
 
-// On Windows, restic.exe is a copy beside the daemon (the service runs
-// as SYSTEM, without the PATH of whoever installed restic), so no package
-// manager ever updates it. Once a week, while nothing's running, restic's
-// own self-update replaces it with the latest release (downloaded from
-// GitHub, its GPG signature checked by restic). Elsewhere restic is the
-// system's, updated the way everything else there is.
+// Two restics belong to charm-bak rather than to a package manager: on
+// Windows the copy beside the daemon (the service runs as SYSTEM, without
+// the PATH of whoever installed restic), and on a Mac or Linux machine
+// without a recent enough restic the daemon's own (resticmanaged.go).
+// Once a week, while nothing's running, restic's own self-update replaces
+// either with the latest release (downloaded from GitHub, its signature
+// checked by restic). A restic installed some other way is updated that
+// way.
 
 const (
 	resticUpdateEvery   = 7 * 24 * time.Hour

@@ -50,7 +50,7 @@ func (r *Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (r *Root) View() tea.View {
 	var v tea.View
 	if r.app == nil {
-		v = tea.NewView(r.renderConnect())
+		v = tea.NewView(scrubFrame(r.renderConnect()))
 	} else {
 		v = r.app.View()
 	}

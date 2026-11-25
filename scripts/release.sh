@@ -35,11 +35,18 @@ rm -f "$ZIP" "$ZIP.sha256"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
 echo "notarizing (Apple usually answers within minutes)…"
-OUT="$(xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait --output-format json)"
-STATUS="$(printf '%s' "$OUT" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')"
+# notarytool exits non-zero for a rejected submission too: carry on to
+# read its status and print Apple's reasons.
+OUT="$(xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait --output-format json)" || true
+STATUS="$(printf '%s' "$OUT" | /usr/bin/python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("status",""))
+except Exception: print("")')"
 if [ "$STATUS" != "Accepted" ]; then
-    ID="$(printf '%s' "$OUT" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')"
-    echo "notarization: $STATUS" >&2
+    ID="$(printf '%s' "$OUT" | /usr/bin/python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("id",""))
+except Exception: print("")')"
+    echo "notarization: ${STATUS:-no answer}" >&2
+    [ -n "$OUT" ] && printf '%s\n' "$OUT" >&2
     [ -n "$ID" ] && xcrun notarytool log "$ID" --keychain-profile "$PROFILE" >&2
     exit 1
 fi

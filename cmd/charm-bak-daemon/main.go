@@ -23,7 +23,7 @@ import (
 	"charm-bak/internal/daemon"
 )
 
-const version = "0.5.0"
+const version = "0.5.1"
 
 // selfPath is this executable's path, read at startup: after an update
 // renames a new file over it, Linux reports the running one as deleted.
@@ -83,6 +83,11 @@ func run() (restart bool) {
 	}
 	defer store.Close()
 
+	// The name goes into the install scripts remotes run: only the
+	// characters a paired name may have.
+	if !daemon.ValidName(*name) {
+		fail(fmt.Errorf("-name %q: use lowercase letters, digits and hyphens (up to 31)", *name))
+	}
 	id, err := daemon.LoadIdentity(*identity, *name)
 	if err != nil {
 		fail(err)
@@ -215,7 +220,7 @@ func run() (restart bool) {
 	}
 	// A restic of its own when none is installed (or it's too old).
 	daemon.SetManagedResticDir(filepath.Join(filepath.Dir(*db), "restic"))
-	go daemon.EnsureRestic(ctx)
+	go daemon.StartRestic(ctx)
 	// A copy of the database, backed up daily into the repository.
 	core.StateCopy = filepath.Join(filepath.Dir(*db), "charm-bak.db.bak")
 	// Snapshot listings kept between runs: a cache database of its own.
@@ -323,7 +328,7 @@ func removeInstall(stateDir string) {
 		os.RemoveAll(macInstallDir) // the bundle and state/
 		log.Printf("uninstalled")
 		// Last: launchd stops this process when its job goes.
-		run("launchctl", "bootout", "system/"+macLabel)
+		run("/bin/launchctl", "bootout", "system/"+macLabel)
 		return
 	}
 	run("systemctl", "disable", "charm-bak.service")

@@ -46,7 +46,7 @@ func (c *Core) openAccessSettings() (protocol.Empty, error) {
 	if runtime.GOOS != "darwin" {
 		return protocol.Empty{}, perr(protocol.ErrBadRequest, "Full Disk Access is a macOS setting.")
 	}
-	open := func(args ...string) error { return exec.Command("open", args...).Run() }
+	open := func(args ...string) error { return exec.Command("/usr/bin/open", args...).Run() }
 	if os.Geteuid() == 0 {
 		// A launchd daemon has no GUI session: run open as the person
 		// logged in at the screen, in theirs.
@@ -56,7 +56,7 @@ func (c *Core) openAccessSettings() (protocol.Empty, error) {
 		}
 		uid := strconv.FormatUint(uint64(id), 10)
 		open = func(args ...string) error {
-			return exec.Command("launchctl", append([]string{"asuser", uid, "sudo", "-u", "#" + uid, "open"}, args...)...).Run()
+			return exec.Command("/bin/launchctl", append([]string{"asuser", uid, "/usr/bin/sudo", "-u", "#" + uid, "/usr/bin/open"}, args...)...).Run()
 		}
 	}
 	if b := appBundle(); b != "" {

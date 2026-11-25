@@ -286,8 +286,13 @@ func (c *Core) setupRemote(ctx context.Context, host string, p protocol.Reposito
 	}
 	// This machine reads the remote's backups itself from here on
 	// (remoteread.go): where they are, and that it now has the secrets.
+	// The location this Mac chose is kept apart from what the remote
+	// reports later, and reads use it (remoteLocation).
 	if raw, err := json.Marshal(out); err == nil {
 		c.saveRemote(host, cacheRepository, raw)
+	}
+	if raw, err := json.Marshal(p.Location); err == nil {
+		c.saveRemote(host, cacheSetupLocation, raw)
 	}
 	c.forgetRemoteView(host)
 	return out, nil
