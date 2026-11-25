@@ -69,6 +69,10 @@ type Fake struct {
 	runs      []protocol.Run // History beyond the sources' last runs
 	// SkippedFiles is RunDetail's files by job, for tests.
 	SkippedFiles map[string][]string
+	// Adopted is every AWSAdopt call's host, for tests.
+	Adopted []string
+	// Rotated is every RotateKey call's host, for tests.
+	Rotated []string
 	// Notice is what NoticeTake hands out, once, for tests.
 	Notice *protocol.Notice
 }

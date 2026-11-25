@@ -55,6 +55,7 @@ How charm-bak is put together. Why each piece is the way it is: `docs/notes.md` 
 - **Updates:** the app carries the daemon for Linux and Windows (amd64, arm64) and the Mac-remote bundle. Each time the Mac connects to a remote whose build differs, it sends the new one over the paired connection; the remote checks the hash, replaces itself and restarts in place (on Windows by renaming the running executable aside and letting the service manager restart it). Windows remotes also run `restic self-update` weekly, since their restic is a copy no package manager updates.
 - **Retry:** a remote that isn't answering is tried again every few seconds.
 - **Removal:** taking a remote away uninstalls its daemon there and unpairs it, optionally deleting its snapshots first; if that deletion fails, nothing is uninstalled.
+- **AWS keys:** for S3, setup can sign in to AWS once and make the bucket, a limit no machine's key can exceed, a key manager (kept in the Mac's Keychain, able only to manage users under IAM path `/charm-bak/` within that limit) and each machine's own user, limited to its folder. Keys charm-bak made are rotated every 90 days, or on demand: a second key, the machine moved onto it and checked, the old key deleted, nothing changed if a step fails. Keys from before (a `charm-bak-<machine>` user elsewhere) can be adopted with one sign-in for every machine waiting. Removing a machine with its backups deletes the user charm-bak made for it.
 
 ## Socket protocol
 

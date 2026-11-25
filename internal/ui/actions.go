@@ -30,6 +30,10 @@ func (a *App) runAction(act action) tea.Cmd {
 		return a.startHostRemove()
 	case act.key.Keys()[0] == keyRemove.Keys()[0] && a.col == colSources:
 		return a.startRemove()
+	case act.key.Keys()[0] == keyAdopt.Keys()[0] && a.col == colSources && a.onHeader():
+		return a.startAdopt()
+	case act.key.Keys()[0] == keyNewKey.Keys()[0] && a.col == colSources && a.onHeader():
+		return a.startKeyRotate()
 	case act.key.Keys()[0] == keyBackup.Keys()[0] && a.col == colSources:
 		return a.backupNow()
 	case act.key.Keys()[0] == keyEdit.Keys()[0] && a.col == colSnapshots:
@@ -166,4 +170,42 @@ func (a *App) backupNow() tea.Cmd {
 func mustPaths(sel *backup.Selection) []string {
 	paths, _ := sel.Compile()
 	return paths
+}
+
+// startKeyRotate asks, then has this Mac's daemon replace the selected
+// machine's AWS key (rotate.go): a new key, the machine moved onto it and
+// checked, the old one deleted, or nothing changed if any step fails.
+func (a *App) startKeyRotate() tea.Cmd {
+	h, ok := a.selHost()
+	if !ok || h.KeyMade == nil {
+		return nil
+	}
+	host := h.Name
+	if h.Local {
+		host = ""
+	}
+	name := h.Name
+	a.modal = &confirm{
+		title: "New AWS key for " + name + "?",
+		body: "charm-bak makes " + name + " a new key, moves it onto it, checks it opens its backups, then deletes the old key. If any step fails, " + name +
+			" keeps the key it has. Its key was made " + stamp(a.now(), *h.KeyMade) + "; charm-bak replaces it every 90 days on its own.",
+		answers: []string{"Replace it", "Cancel"},
+		act: func(a *App, answer int) tea.Cmd {
+			if answer != 0 {
+				return nil
+			}
+			a.statusMsg = "replacing " + name + "'s AWS key…"
+			repo := a.repo
+			return func() tea.Msg {
+				_, err := repo.RotateKey(context.Background(), host)
+				return keyRotateMsg{name, err}
+			}
+		},
+	}
+	return nil
+}
+
+type keyRotateMsg struct {
+	host string
+	err  error
 }

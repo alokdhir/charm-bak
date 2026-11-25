@@ -540,6 +540,26 @@ func (f *Fake) NoticeTake(context.Context) (*protocol.Notice, error) {
 	return n, nil
 }
 
+// AWSAdopt records the request; Adopted lists each machine, for tests.
+func (f *Fake) AWSAdopt(_ context.Context, hosts []string) (protocol.AWSAdoptResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	res := protocol.AWSAdoptResult{}
+	for _, h := range hosts {
+		f.Adopted = append(f.Adopted, h)
+		res.Adopted = append(res.Adopted, protocol.AdoptedKey{Host: h, User: "charm-bak-" + h, KeyMade: f.Now})
+	}
+	return res, nil
+}
+
+// RotateKey records the request; Rotated lists them, for tests.
+func (f *Fake) RotateKey(_ context.Context, host string) (protocol.Job, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Rotated = append(f.Rotated, host)
+	return protocol.Job{ID: "j-rotate", Kind: protocol.KindRotate}, nil
+}
+
 // RunDetail finds a run in History; SkippedFiles holds its files.
 func (f *Fake) RunDetail(ctx context.Context, job string) (protocol.RunResult, error) {
 	runs, _ := f.History(ctx, time.Time{})

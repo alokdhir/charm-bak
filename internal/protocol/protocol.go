@@ -194,6 +194,9 @@ const (
 	// KindRewrite removes paths from a source's existing snapshots
 	// (source_rewrite), then prunes.
 	KindRewrite = "rewrite"
+	// KindRotate replaces a machine's AWS key with a new one (key_rotate,
+	// or every 90 days): only keys charm-bak made.
+	KindRotate = "rotate"
 )
 
 // Job is a running restic job. Source is empty for repository-wide jobs.
@@ -288,6 +291,8 @@ const (
 	MethodRun            = "run"
 	MethodNoticeShow     = "notice_show"
 	MethodNoticeTake     = "notice_take"
+	MethodKeyRotate      = "key_rotate"
+	MethodAWSAdopt       = "aws_adopt"
 )
 
 // UntaggedSource is the pseudo-source for snapshots without a charm-bak tag.
@@ -710,6 +715,42 @@ type Host struct {
 	State    string     `json:"state"`   // "ok" or "unreachable"
 	Error    string     `json:"error"`   // why it's unreachable
 	LastSeen *time.Time `json:"last_seen"`
+	// KeyMade is when charm-bak made the AWS key this machine uses (it's
+	// rotated 90 days on); nil when it uses one it was given.
+	KeyMade *time.Time `json:"key_made,omitempty"`
+}
+
+// AWSAdoptParams names the machines whose AWS keys (ones charm-bak
+// didn't make) to bring under charm-bak's care, all with one sign-in
+// ("" is the controller's own).
+type AWSAdoptParams struct {
+	Hosts []string `json:"hosts"`
+}
+
+// AWSAdoptResult says how each machine's adoption went.
+type AWSAdoptResult struct {
+	Adopted []AdoptedKey `json:"adopted"`
+	Failed  []HostError  `json:"failed"`
+}
+
+// AdoptedKey is a machine whose key was adopted: its IAM user and when
+// the key was made (it's rotated 90 days on).
+type AdoptedKey struct {
+	Host    string    `json:"host"`
+	User    string    `json:"user"`
+	KeyMade time.Time `json:"key_made"`
+}
+
+// HostError is one machine's failure in a request about several.
+type HostError struct {
+	Host  string `json:"host"`
+	Error string `json:"error"`
+}
+
+// KeyRotateParams names the machine whose AWS key to replace ("" is the
+// controller's own).
+type KeyRotateParams struct {
+	Host string `json:"host"`
 }
 
 // Host states.

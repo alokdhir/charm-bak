@@ -42,6 +42,17 @@ func (a *App) columnActions() []action {
 		if !h.Local {
 			acts = append(acts, action{label: "Remove", key: keyRemove})
 		}
+		// A key charm-bak made can be replaced now (it's also replaced
+		// every 90 days); one the user gave it is theirs.
+		if h.KeyMade != nil {
+			needs := ""
+			if !h.Local {
+				needs = "Replacing its key"
+			}
+			acts = append(acts, action{"New key", keyNewKey, needs})
+		} else if a.adoptable(h) {
+			acts = append(acts, action{label: "Adopt key", key: keyAdopt})
+		}
 		return append(acts, action{label: "Add Remote", key: keyRemote})
 	case a.col == colSources:
 		// Add Remote on every row: pairing another machine isn't about

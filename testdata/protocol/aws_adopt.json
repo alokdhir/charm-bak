@@ -1,0 +1,27 @@
+{
+  "request": {
+    "id": 1,
+    "method": "aws_adopt",
+    "params": {
+      "hosts": ["studio", "pantry"]
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "adopted": [
+        {
+          "host": "studio",
+          "user": "charm-bak-studio",
+          "key_made": "2026-11-19T10:00:00-05:00"
+        }
+      ],
+      "failed": [
+        {
+          "host": "pantry",
+          "error": "pantry's key belongs to the IAM user backups; charm-bak looks after users named charm-bak-pantry."
+        }
+      ]
+    }
+  }
+}

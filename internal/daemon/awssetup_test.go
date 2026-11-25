@@ -117,6 +117,21 @@ func (f *fakeAWS) run(_ context.Context, env []string, args ...string) ([]byte, 
 	case "iam put-user-policy":
 		f.users[flag(args, "--user-name")].policy = flag(args, "--policy-document")
 		return nil, nil
+	case "iam get-access-key-last-used":
+		id := flag(args, "--access-key-id")
+		for name, u := range f.users {
+			for _, k := range u.keys {
+				if k == id {
+					return j(map[string]any{"UserName": name})
+				}
+			}
+		}
+		return fail("AccessDenied")
+	case "iam update-user":
+		f.users[flag(args, "--user-name")].path = flag(args, "--new-path")
+		return nil, nil
+	case "s3api get-bucket-location":
+		return j(map[string]any{"LocationConstraint": nil})
 	case "iam list-access-keys":
 		var ks []map[string]string
 		for _, k := range f.users[flag(args, "--user-name")].keys {

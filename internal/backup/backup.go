@@ -85,6 +85,13 @@ type Repo interface {
 	RunDetail(ctx context.Context, job string) (protocol.RunResult, error)
 	// NoticeTake claims the notification a click asked to show, if any.
 	NoticeTake(ctx context.Context) (*protocol.Notice, error)
+	// RotateKey queues replacing host's AWS key (one charm-bak made) with
+	// a new one; host "" is this Mac. Asked of this Mac's daemon, which
+	// holds the key manager, whichever machine it's for.
+	RotateKey(ctx context.Context, host string) (protocol.Job, error)
+	// AWSAdopt brings hosts' AWS keys (ones charm-bak didn't make) under
+	// its care, with one browser sign-in; "" is this Mac.
+	AWSAdopt(ctx context.Context, hosts []string) (protocol.AWSAdoptResult, error)
 
 	// Events delivers the app's events until ctx ends or the app goes
 	// away; the channel closes then.

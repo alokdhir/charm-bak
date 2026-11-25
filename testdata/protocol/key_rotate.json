@@ -1,0 +1,20 @@
+{
+  "request": {
+    "id": 1,
+    "method": "key_rotate",
+    "params": {
+      "host": "pantry"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "job": {
+        "id": "j-77",
+        "kind": "rotate",
+        "source": null,
+        "started": "2026-11-25T15:00:00-05:00"
+      }
+    }
+  }
+}

@@ -470,6 +470,19 @@ func (c *Client) AWSStatus(ctx context.Context) (protocol.AWSStatusResult, error
 
 // AWSKeys waits up to 15 minutes: signing in happens in a browser, at the
 // person's pace (the daemon gives up after 10).
+// AWSAdopt brings host's AWS key under charm-bak's care; it waits for a
+// browser sign-in, so it has minutes, not seconds.
+func (c *Client) AWSAdopt(ctx context.Context, hosts []string) (protocol.AWSAdoptResult, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 15*time.Minute)
+		defer cancel()
+	}
+	var r protocol.AWSAdoptResult
+	err := c.Call(ctx, protocol.MethodAWSAdopt, protocol.AWSAdoptParams{Hosts: hosts}, &r)
+	return r, err
+}
+
 func (c *Client) AWSKeys(ctx context.Context, p protocol.AWSKeysParams) (protocol.AWSKeysResult, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
@@ -554,6 +567,15 @@ func (c *Client) History(ctx context.Context, since time.Time) ([]protocol.Run, 
 	var r protocol.HistoryResult
 	err := c.Call(ctx, protocol.MethodHistory, protocol.HistoryParams{Since: since}, &r)
 	return r.Runs, err
+}
+
+// RotateKey queues replacing host's AWS key with a new one.
+func (c *Client) RotateKey(ctx context.Context, host string) (protocol.Job, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	var r protocol.JobResult
+	err := c.Call(ctx, protocol.MethodKeyRotate, protocol.KeyRotateParams{Host: host}, &r)
+	return r.Job, err
 }
 
 // NoticeTake claims the notification a click asked to show, if any.

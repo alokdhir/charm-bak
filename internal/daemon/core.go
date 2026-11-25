@@ -67,6 +67,10 @@ type Core struct {
 	// being recorded (the database refused it): the scheduler waits a
 	// full interval from then, as it would from a recorded run.
 	lastTry map[string]time.Time
+	// rotating names the machine each queued or running key rotation is
+	// for, by job ID; rotateTried is when each machine's was last queued.
+	rotating    sync.Map // job ID -> machine
+	rotateTried map[string]time.Time
 	// notice is a clicked notification no TUI has taken yet (noticeKeep).
 	notice    *protocol.Notice
 	noticeAt  time.Time
@@ -219,9 +223,18 @@ func newJobID() string {
 }
 
 func (c *Core) enqueue(kind string, source *string, work func(context.Context, protocol.Job) outcome) protocol.Job {
+	return c.enqueueNoting(kind, source, nil, work)
+}
+
+// enqueueNoting is enqueue with note called on the new job before it can
+// start (under c.mu), to record what it's for.
+func (c *Core) enqueueNoting(kind string, source *string, note func(protocol.Job), work func(context.Context, protocol.Job) outcome) protocol.Job {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	j := protocol.Job{ID: newJobID(), Kind: kind, Source: source, Started: c.now()}
+	if note != nil {
+		note(j)
+	}
 	c.queue = append(c.queue, &pendingJob{job: j, work: work})
 	c.runNextLocked()
 	return j
@@ -400,6 +413,7 @@ func (c *Core) Tick() {
 	}
 	c.mu.Unlock()
 	retryRestic(now)
+	c.rotationsDue(now)
 	for _, s := range due {
 		c.enqueueBackup(s)
 	}
@@ -921,6 +935,20 @@ func (c *Core) Handle(ctx context.Context, req protocol.Request) (any, error) {
 		c.publish(protocol.Event{Name: protocol.EventNoticeShow, NoticeShow: &protocol.NoticeEvent{Notice: n}})
 		c.mu.Unlock()
 		return protocol.Empty{}, nil
+
+	case protocol.MethodAWSAdopt:
+		var p protocol.AWSAdoptParams
+		if err := params(&p); err != nil {
+			return nil, err
+		}
+		return c.awsAdopt(ctx, p)
+
+	case protocol.MethodKeyRotate:
+		var p protocol.KeyRotateParams
+		if err := params(&p); err != nil {
+			return nil, err
+		}
+		return c.requestRotate(p)
 
 	case protocol.MethodNoticeTake:
 		c.mu.Lock()
@@ -1574,6 +1602,11 @@ func describePasswordCommand(cmd string) string {
 // jobWhat names a job for the log: its kind and, for a source's job, the
 // source's name.
 func (c *Core) jobWhat(job protocol.Job) string {
+	if job.Kind == protocol.KindRotate {
+		if host, ok := c.rotating.Load(job.ID); ok {
+			return "rotate of " + host.(string) + "'s AWS key"
+		}
+	}
 	if job.Source == nil {
 		return job.Kind
 	}

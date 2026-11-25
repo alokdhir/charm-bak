@@ -217,36 +217,11 @@ func (c *Core) awsSignInKeys(ctx context.Context, host string, p protocol.AWSKey
 	if region == "" {
 		region = "us-east-1"
 	}
-	// The sign-in lives in a folder of its own, gone when this returns:
-	// the person's own ~/.aws is never touched and nothing stays signed in.
-	dir, err := os.MkdirTemp("", "charm-bak-aws-")
+	env, who, done, err := c.awsSignIn(ctx, host, region)
 	if err != nil {
 		return protocol.AWSKeysResult{}, err
 	}
-	defer os.RemoveAll(dir)
-	if err := os.WriteFile(filepath.Join(dir, "config"), []byte("[default]\nregion = "+region+"\n"), 0o600); err != nil {
-		return protocol.AWSKeysResult{}, err
-	}
-	env := []string{
-		"AWS_CONFIG_FILE=" + filepath.Join(dir, "config"),
-		"AWS_SHARED_CREDENTIALS_FILE=" + filepath.Join(dir, "credentials"),
-		"AWS_LOGIN_CACHE_DIRECTORY=" + filepath.Join(dir, "login"),
-		"AWS_DEFAULT_REGION=" + region,
-	}
-	sctx, cancel := context.WithTimeout(ctx, awsSignInTimeout)
-	defer cancel()
-	logf("signing in to AWS for %s's key (browser)", host)
-	if _, err := c.aws(sctx, env, "login", "--region", region); err != nil {
-		if sctx.Err() != nil {
-			return protocol.AWSKeysResult{}, perr(protocol.ErrInternal, "Nobody signed in within %v.", awsSignInTimeout)
-		}
-		return protocol.AWSKeysResult{}, awsPerr(err)
-	}
-	var who struct{ Account, Arn string }
-	if err := c.awsJSON(ctx, env, &who, "sts", "get-caller-identity"); err != nil {
-		return protocol.AWSKeysResult{}, awsPerr(err)
-	}
-	logf("signed in to AWS as %s", who.Arn)
+	defer done()
 	bucket := p.Bucket
 	if bucket == "" {
 		bucket = "charm-bak-" + who.Account
@@ -272,6 +247,48 @@ func (c *Core) awsSignInKeys(ctx context.Context, host string, p protocol.AWSKey
 	c.awsStep(host, protocol.AWSStepKeyWorks, who.Account, bucket)
 	c.rememberMadeKey(host, made["AWS_ACCESS_KEY_ID"])
 	return protocol.AWSKeysResult{Bucket: bucket, Region: region, Env: made, BucketCreated: created}, nil
+}
+
+// awsIdentity is who an AWS sign-in is.
+type awsIdentity struct{ Account, Arn string }
+
+// awsSignIn runs `aws login` in the browser for host's sake, into a
+// folder of its own that done removes: the person's own ~/.aws is never
+// touched and nothing stays signed in. env is the aws command's
+// environment for the session.
+func (c *Core) awsSignIn(ctx context.Context, host, region string) (env []string, who awsIdentity, done func(), err error) {
+	dir, err := os.MkdirTemp("", "charm-bak-aws-")
+	if err != nil {
+		return nil, who, nil, err
+	}
+	done = func() { os.RemoveAll(dir) }
+	fail := func(err error) ([]string, awsIdentity, func(), error) {
+		done()
+		return nil, awsIdentity{}, nil, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte("[default]\nregion = "+region+"\n"), 0o600); err != nil {
+		return fail(err)
+	}
+	env = []string{
+		"AWS_CONFIG_FILE=" + filepath.Join(dir, "config"),
+		"AWS_SHARED_CREDENTIALS_FILE=" + filepath.Join(dir, "credentials"),
+		"AWS_LOGIN_CACHE_DIRECTORY=" + filepath.Join(dir, "login"),
+		"AWS_DEFAULT_REGION=" + region,
+	}
+	sctx, cancel := context.WithTimeout(ctx, awsSignInTimeout)
+	defer cancel()
+	logf("signing in to AWS for %s (browser)", host)
+	if _, err := c.aws(sctx, env, "login", "--region", region); err != nil {
+		if sctx.Err() != nil {
+			return fail(perr(protocol.ErrInternal, "Nobody signed in within %v.", awsSignInTimeout))
+		}
+		return fail(awsPerr(err))
+	}
+	if err := c.awsJSON(ctx, env, &who, "sts", "get-caller-identity"); err != nil {
+		return fail(awsPerr(err))
+	}
+	logf("signed in to AWS as %s", who.Arn)
+	return env, who, done, nil
 }
 
 // awsStep tells subscribers how far making host's key has got.
@@ -535,20 +552,39 @@ func (c *Core) awsKeyWorks(ctx context.Context, made map[string]string, region s
 	return fmt.Errorf("the new key still isn't accepted: %w", err)
 }
 
-// awsSettingMadeKeys is the access key ID charm-bak made for each
-// machine (aws_keys), so removing one deletes only a user it made a key
-// for: a machine set up with a key the user typed has none.
+// awsSettingMadeKeys is the access key charm-bak made for each machine
+// (aws_keys, key rotation): its ID, so removing a machine deletes only a
+// user it made a key for (a machine set up with a key the user typed has
+// none), and when, so it's rotated 90 days on.
 const awsSettingMadeKeys = "aws_made_keys"
 
-func (c *Core) madeKeys() map[string]string {
-	m := map[string]string{}
-	c.store.Setting(awsSettingMadeKeys, &m)
+type madeKey struct {
+	Key  string    `json:"key"`
+	Made time.Time `json:"made"`
+}
+
+func (c *Core) madeKeys() map[string]madeKey {
+	raw := map[string]json.RawMessage{}
+	c.store.Setting(awsSettingMadeKeys, &raw)
+	m := map[string]madeKey{}
+	for host, v := range raw {
+		var k madeKey
+		if json.Unmarshal(v, &k) != nil {
+			// Kept before the date was: an ID alone, rotated from now on.
+			var id string
+			if json.Unmarshal(v, &id) != nil {
+				continue
+			}
+			k = madeKey{Key: id, Made: c.now()}
+		}
+		m[host] = k
+	}
 	return m
 }
 
 func (c *Core) rememberMadeKey(host, keyID string) {
 	m := c.madeKeys()
-	m[host] = keyID
+	m[host] = madeKey{Key: keyID, Made: c.now()}
 	if err := c.store.SetSetting(awsSettingMadeKeys, m); err != nil {
 		logf("AWS: remembering %s's key: %v", host, err)
 	}
@@ -570,7 +606,7 @@ func (c *Core) forgetMadeKey(host string) {
 // isn't there is left alone. The note says what's left to do by hand, ""
 // when nothing is.
 func (c *Core) awsDeleteMachineUser(ctx context.Context, host string) string {
-	keyID := c.madeKeys()[host]
+	keyID := c.madeKeys()[host].Key
 	if keyID == "" {
 		return ""
 	}

@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -100,7 +102,7 @@ func TestHostHeadersFold(t *testing.T) {
 	if len(a.snaps) != 0 || a.snapsFor != "" {
 		t.Errorf("header loaded snapshots for %q", a.snapsFor)
 	}
-	if got := actionLabels(a); got != "Add Edit Add Remote Info" {
+	if got := actionLabels(a); got != "Add Edit Adopt key Add Remote Info" {
 		t.Errorf("local header actions %q", got)
 	}
 	n := len(a.srcRows())
@@ -120,8 +122,8 @@ func TestHostHeadersFold(t *testing.T) {
 	if a.selectedRowKey() != "#pantry" {
 		t.Errorf("down from folded studio: on %q", a.selectedRowKey())
 	}
-	if got := actionLabels(a); got != "Add Edit Remove Add Remote Info" {
-		t.Errorf("answering remote header actions %q, want Add Edit Remove Add Remote Info", got)
+	if got := actionLabels(a); got != "Add Edit Remove Adopt key Add Remote Info" {
+		t.Errorf("answering remote header actions %q, want Add Edit Remove Adopt key Add Remote Info", got)
 	}
 	press(a, "left")
 	if !a.collapsed["pantry"] {
@@ -856,5 +858,106 @@ func TestHeroLastRunNotCut(t *testing.T) {
 		if len(lines) < 3 || strings.Index(lines[2], "Retention") != strings.Index(lines[1], "Schedule") {
 			t.Errorf("width %d: retention not under schedule:\n%s", w, hero)
 		}
+	}
+}
+
+// A machine whose AWS key charm-bak made offers New key on its header;
+// it asks first, and Cancel changes nothing. Without a made key there's
+// no such action.
+func TestNewKeyOnHeader(t *testing.T) {
+	a, _ := newRemoteApp(t)
+	ctl := a.repo.(*backup.Fake)
+	cursorTo(t, a, "#pantry")
+	for _, act := range a.actions() {
+		if act.label == "New key" {
+			t.Fatal("New key offered for a key charm-bak didn't make")
+		}
+	}
+	made := testNow.Add(-40 * 24 * time.Hour)
+	for i := range a.hosts {
+		if a.hosts[i].Name == "pantry" {
+			a.hosts[i].KeyMade = &made
+		}
+	}
+	if !strings.Contains(ansi.Strip(a.View().Content), "[N]ew key") {
+		t.Fatalf("no New key in the action bar:\n%s", ansi.Strip(a.renderActionBar()))
+	}
+	press(a, "n")
+	c, ok := a.modal.(*confirm)
+	if !ok || !strings.Contains(c.body, "keeps the key it has") {
+		t.Fatalf("modal %T", a.modal)
+	}
+	press(a, "esc") // Cancel
+	if len(ctl.Rotated) != 0 {
+		t.Fatalf("rotated on cancel: %v", ctl.Rotated)
+	}
+	press(a, "n")
+	drain(a, a.modal.update(a, tea.KeyPressMsg{Code: tea.KeyEnter}))
+	if len(ctl.Rotated) != 1 || ctl.Rotated[0] != "pantry" {
+		t.Fatalf("rotations asked %v", ctl.Rotated)
+	}
+	press(a, "i")
+	if !strings.Contains(ansi.Strip(a.View().Content), "AWS key made") {
+		t.Error("info doesn't show the key's age")
+	}
+}
+
+// A machine on S3 with a key charm-bak didn't make is offered adoption
+// once; Not now is remembered, Adopt key on its header asks again, and
+// adopting goes to this Mac's daemon.
+func TestAdoptOffer(t *testing.T) {
+	shown := filepath.Join(t.TempDir(), "offered-pantry")
+	adoptOfferedFile = func(host string) string {
+		if host == "pantry" {
+			return shown
+		}
+		return ""
+	}
+	defer func() { adoptOfferedFile = func(string) string { return "" } }()
+	// The fake pantry is on S3 with a key it was given: offered at start.
+	a, _ := newRemoteApp(t)
+	ctl := a.repo.(*backup.Fake)
+	c, ok := a.modal.(*confirm)
+	if !ok || !strings.Contains(c.title, "Adopt pantry") {
+		t.Fatalf("no offer: %T", a.modal)
+	}
+	press(a, "esc") // Not now
+	if _, err := os.Stat(shown); err != nil || len(ctl.Adopted) != 0 {
+		t.Fatalf("not now: recorded %v, adopted %v", err, ctl.Adopted)
+	}
+	a.adoptAsked = nil
+	a.offerAdopt()
+	if a.modal != nil {
+		t.Fatal("offered twice")
+	}
+	cursorTo(t, a, "#pantry")
+	if !strings.Contains(ansi.Strip(a.renderActionBar()), "Ad[o]pt key") {
+		t.Fatalf("no Adopt key action:\n%s", ansi.Strip(a.renderActionBar()))
+	}
+	press(a, "o")
+	drain(a, a.modal.update(a, tea.KeyPressMsg{Code: tea.KeyEnter}))
+	if len(ctl.Adopted) != 1 || ctl.Adopted[0] != "pantry" {
+		t.Fatalf("adopted %v", ctl.Adopted)
+	}
+}
+
+// Several machines waiting: one question, "both" for two, "all 3" from
+// three on, and one adoption request for all of them.
+func TestAdoptOfferSeveral(t *testing.T) {
+	if many(2) != "both" || many(3) != "all 3" {
+		t.Errorf("many: %q %q", many(2), many(3))
+	}
+	dir := t.TempDir()
+	adoptOfferedFile = func(host string) string { return filepath.Join(dir, host) }
+	defer func() { adoptOfferedFile = func(string) string { return "" } }()
+	a, _ := newRemoteApp(t)
+	ctl := a.repo.(*backup.Fake)
+	c, ok := a.modal.(*confirm)
+	if !ok || c.title != "Adopt both machines' AWS keys?" || c.answers[0] != "Adopt both" {
+		t.Fatalf("offer: %T %+v", a.modal, c)
+	}
+	drain(a, a.modal.update(a, tea.KeyPressMsg{Code: tea.KeyEnter}))
+	if len(ctl.Adopted) != 2 {
+		t.Fatalf("adopted %v", ctl.Adopted)
 	}
 }

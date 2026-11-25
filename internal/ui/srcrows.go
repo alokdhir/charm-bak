@@ -284,6 +284,9 @@ func (a *App) hostInfoFields(h protocol.Host) []infoField {
 	if h.LastSeen != nil {
 		f = append(f, infoField{"Last seen", stamp(a.now(), *h.LastSeen)})
 	}
+	if h.KeyMade != nil {
+		f = append(f, infoField{"AWS key made", stamp(a.now(), *h.KeyMade) + " by charm-bak; replaced every 90 days, or now with n"})
+	}
 	res, ok := a.repos[h.Name]
 	if !ok {
 		return f
@@ -299,7 +302,7 @@ func (a *App) hostInfoFields(h protocol.Host) []infoField {
 		}
 		f = append(f, infoField{"Cleaned up", a.maintText(r.LastPrune)}, infoField{"Checked", a.maintText(r.LastCheck)})
 		if r.NextMaintenance != nil && r.NextMaintenance.After(a.now()) {
-			f = append(f, infoField{"Next upkeep", r.NextMaintenance.Local().Format("Mon Jan 2") + ", when nothing else is queued"})
+			f = append(f, infoField{"Next clean-up & check", r.NextMaintenance.Local().Format("Mon Jan 2") + ", when nothing else is queued"})
 		}
 	} else {
 		f = append(f, infoField{"Repository", "none yet"})

@@ -4,7 +4,7 @@ Backups for a Mac and the Linux, Mac and Windows machines around it, to storage 
 
 charm-bak is a menu bar app, a background daemon and a [Charm](https://charm.sh)-style TUI wrapped around [restic](https://restic.net). restic does the hard part: encrypted, deduplicated, compressed snapshots in S3, Backblaze B2, a drive, or anything else it supports. charm-bak does everything around it: scheduling, retention, credentials, a browser for your history, restore, diff, and running the same thing on other machines without SSH.
 
-> Status: 0.5.1, the initial release. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [Not there yet](#not-there-yet).
+> Status: 0.6.0. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [Not there yet](#not-there-yet).
 
 ![charm-bak's TUI: a source's snapshots, each with how much it added, then the files in one snapshot and a preview of the selected file](docs/screenshot.png)
 
@@ -160,6 +160,10 @@ Pick S3, then **Sign in to AWS**. charm-bak runs `aws login` in your browser, in
 
 The next machine needs no sign-in: **Make <machine> a key** has the key manager make its user. Removing a machine and deleting its backups deletes its user too, if charm-bak made it. **I have a key** takes one you made yourself instead, and charm-bak then leaves your IAM users alone.
 
+**Keys it made, it rotates.** Every 90 days (the age AWS's own checks flag), charm-bak follows AWS's procedure for each machine: the key manager makes a second key, the machine is moved onto it and checked (its repository must open with it), and the old key is deleted. If any step fails, the machine keeps its current key and the failure is a notification like any other. A machine that's off or busy is tried again within the hour. `n` on a machine's header does it now, if you think a key has leaked; its info shows when the key was made.
+
+**Keys from before can be adopted.** A machine using an AWS key charm-bak didn't make, for a user named `charm-bak-<machine>`, is offered adoption once (and **Adopt key** on its header does it any time). One AWS sign-in covers every machine waiting: each user moves under `/charm-bak/` with the same limits a made user has, and from then on charm-bak rotates its key and removes its user with the machine. The key itself stays the same until the first rotation.
+
 ## Remotes and your network
 
 One Mac is in charge. It runs the TUI and the menu bar app, and its daemon configures and follows every remote. Each remote runs the same daemon, backing up to its own repository on its own schedule and with its own credentials. The Mac also reads every remote's repository directly, so a remote that's off or broken can still be browsed and restored from.
@@ -205,6 +209,7 @@ The Mac finds a remote at the address it had when paired. If that changes, `e` o
 | `c` | what a snapshot changed since the one before |
 | `d` | diff a file or folder against the live disk |
 | `p` | pin a snapshot |
+| `n` `o` | a new AWS key now, adopt a key charm-bak didn't make (a machine's header) |
 | `i` or space | info, Quick Look style |
 | `^T` `^N` | running jobs, past notifications |
 | `?` | everything else |
@@ -213,6 +218,7 @@ The Mac finds a remote at the address it had when paired. If that changes, `e` o
 
 - **Secrets stay where they're used.** Repository passwords and storage keys live in the Mac's Keychain, and on a remote in files only root (Linux, macOS) or SYSTEM and Administrators (Windows) can read. They reach restic through that one process's environment, never a command line or a log. The TUI holds none: it talks to the daemon over a Unix socket only your user can open.
 - **Remotes are paired, not trusted by network.** Each daemon makes its own key (ECDSA P-256) the first time it starts; none ship with the app. The command you paste carries a one-time code (80 random bits, ten minutes, one use) and the Mac's key fingerprint, which `curl` checks before running anything. From then on the Mac and each remote talk only TLS 1.3 between keys pinned at pairing: port 7457 gives a device that isn't paired nothing at all.
+- **AWS keys charm-bak made are rotated every 90 days**, and on demand. Each is limited to its machine's own folder in the bucket, under a limit no key it makes can exceed.
 - **Updates to remotes** travel over that pinned connection and are checked against their hash before a remote swaps them in.
 - **restic itself**, when charm-bak fetches it, is checked against the checksums restic signs with its release key.
 - **A remote can't reach into the Mac.** The Mac reads each remote's backups itself, at the location it set them up at, and nothing a repository holds (snapshot IDs, paths, names) can turn into an option for restic or an escape sequence in your terminal.

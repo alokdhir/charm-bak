@@ -92,8 +92,10 @@ func (lv dirLevel) child(i int) node {
 
 // App is the main view.
 type App struct {
-	repo backup.Repo
-	now  func() time.Time
+	// adoptAsked: machines whose key adoption was offered this session.
+	adoptAsked map[string]bool
+	repo       backup.Repo
+	now        func() time.Time
 
 	width, height int
 
@@ -496,6 +498,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.repos != nil {
 			a.repos = msg.repos
+			a.offerAdopt()
 		}
 		paired := a.offerSetup()
 		if m, ok := a.modal.(*addRemote); ok {
@@ -523,6 +526,16 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(a.loadSnapshots(), paired, take)
 		}
 		return a, tea.Batch(paired, take)
+
+	case adoptedMsg:
+		return a, a.adopted(msg)
+
+	case keyRotateMsg:
+		// The job's own events say how it went; a refusal says so here.
+		if msg.err != nil {
+			a.statusMsg = msg.host + ": " + msg.err.Error()
+		}
+		return a, nil
 
 	case noticeTakenMsg:
 		if msg.n != nil {

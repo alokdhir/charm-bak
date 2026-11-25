@@ -34,6 +34,8 @@ var (
 	keyDiff    = key.NewBinding(key.WithKeys("d", "D"), key.WithHelp("d", "compare a file or folder with what's on disk now (tree)"))
 	keyChanges = key.NewBinding(key.WithKeys("c", "C"), key.WithHelp("c", "changes: what this snapshot added, removed and changed since the one before (Snapshots)"))
 	keyExclude = key.NewBinding(key.WithKeys("x", "X"), key.WithHelp("x", "exclude from the source's backups from now on (tree)"))
+	keyAdopt   = key.NewBinding(key.WithKeys("o", "O"), key.WithHelp("o", "adopt a machine's AWS key, one charm-bak didn't make, so it's rotated (its header)"))
+	keyNewKey  = key.NewBinding(key.WithKeys("n", "N"), key.WithHelp("n", "new AWS key: replace a machine's key now, when charm-bak made it (its header); it's also done every 90 days"))
 	keyFinder  = key.NewBinding(key.WithKeys("f", "F"), key.WithHelp("f", "show it on disk now in Finder (Snapshots, tree; this Mac's sources)"))
 
 	// Inside popups.
@@ -45,7 +47,7 @@ var (
 
 var helpBindings = []key.Binding{
 	keyUp, keyDown, keyLeft, keyRight, keyEnter, keyPageUp, keyPageDown, keyTop, keyBottom,
-	keyAdd, keyEdit, keyRemove, keyRemote, keyBackup, keyRestore, keyPin, keyDiff, keyChanges, keyExclude, keyFinder,
+	keyAdd, keyEdit, keyRemove, keyRemote, keyBackup, keyRestore, keyPin, keyDiff, keyChanges, keyExclude, keyFinder, keyNewKey, keyAdopt,
 	keyMark, keyHidden, keyNext, keyPrev,
 	keyInfo, keyTasks, keyNotices, keyEsc, keyHelp, keyQuit,
 }

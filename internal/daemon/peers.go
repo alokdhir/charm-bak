@@ -487,6 +487,15 @@ func (c *Core) hosts() protocol.HostsResult {
 		res.Hosts = append(res.Hosts, r.host())
 	}
 	slices.SortFunc(res.Hosts[1:], func(a, b protocol.Host) int { return strings.Compare(a.Name, b.Name) })
+	// When charm-bak made each machine's AWS key, for the TUI to show its
+	// age (and that it's rotated).
+	made := c.madeKeys()
+	for i := range res.Hosts {
+		if k, ok := made[res.Hosts[i].Name]; ok {
+			t := k.Made
+			res.Hosts[i].KeyMade = &t
+		}
+	}
 	return res
 }
 

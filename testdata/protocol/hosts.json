@@ -21,7 +21,8 @@
           "address": "pantry.lan:7457",
           "state": "unreachable",
           "error": "connection refused",
-          "last_seen": "2026-11-20T18:00:00-05:00"
+          "last_seen": "2026-11-20T18:00:00-05:00",
+          "key_made": "2026-11-20T10:00:00-05:00"
         }
       ]
     }

@@ -11,7 +11,8 @@ import (
 // test that starts an app.
 func TestMain(m *testing.M) {
 	kittyHintEnv = func(string) string { return "" }
-	selectOwnWindow = func() {} // never drive the screen session the tests run in
+	selectOwnWindow = func() {}                          // never drive the screen session the tests run in
+	adoptOfferedFile = func(string) string { return "" } // no offers unless a test asks
 	os.Exit(m.Run())
 }
 

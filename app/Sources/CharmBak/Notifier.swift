@@ -124,6 +124,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
         case "prune": return ("Repository cleanup\(on) failed", "cleanup")
         case "check": return ("Repository check\(on) found a problem", "check")
         case "state": return ("Backup of charm-bak's own settings\(on) failed", "charm-bak's settings")
+        case "rotate": return ("Replacing an AWS key failed", "AWS key")
         default: return ("\(run.kind.capitalized)\(on) failed", run.kind)
         }
     }

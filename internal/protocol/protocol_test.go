@@ -36,6 +36,8 @@ var methods = map[string]struct{ params, result any }{
 	MethodRun:            {&RunParams{}, &RunResult{}},
 	MethodNoticeShow:     {&Notice{}, &Empty{}},
 	MethodNoticeTake:     {nil, &NoticeTakeResult{}},
+	MethodKeyRotate:      {&KeyRotateParams{}, &JobResult{}},
+	MethodAWSAdopt:       {&AWSAdoptParams{}, &AWSAdoptResult{}},
 	MethodSubscribe:      {nil, &Empty{}},
 	MethodRepository:     {nil, &RepositoryResult{}},
 	MethodDefaultsSet:    {&DefaultsSetParams{}, &DefaultsResult{}},

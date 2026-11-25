@@ -339,6 +339,8 @@ func (a *App) noticeTitle(n notice) string {
 		return "Repository cleanup" + on + " failed"
 	case n.run.Kind == protocol.KindCheck:
 		return "Repository check" + on + " found a problem"
+	case n.run.Kind == protocol.KindRotate:
+		return "Replacing an AWS key" + on + " failed"
 	case n.run.Kind == protocol.KindState:
 		return "Backup of charm-bak's own settings" + on + " failed"
 	case name != "":

@@ -261,6 +261,13 @@ public struct Notice: Codable, Sendable {
     public init(host: String, job: String) { self.host = host; self.job = job }
 }
 public struct NoticeTakeResult: Codable, Sendable { public var notice: Notice? }
+/// Replace a machine's AWS key (one charm-bak made) with a new one.
+public struct KeyRotateParams: Codable, Sendable { public var host: String }
+/// Bring a machine's AWS key (one charm-bak didn't make) under its care.
+public struct AWSAdoptParams: Codable, Sendable { public var hosts: [String] }
+public struct AdoptedKey: Codable, Sendable { public var host: String; public var user: String; public var keyMade: Date }
+public struct HostError: Codable, Sendable { public var host: String; public var error: String }
+public struct AWSAdoptResult: Codable, Sendable { public var adopted: [AdoptedKey]; public var failed: [HostError] }
 public struct RunResult: Codable, Sendable { public var run: Run; public var skippedFiles: [String] }
 
 public struct RepositoryInfo: Codable, Sendable {
@@ -288,6 +295,9 @@ public struct Host: Codable, Sendable {
     public var state: String
     public var error: String
     public var lastSeen: Date?
+    /// When charm-bak made the AWS key this machine uses; nil for one it
+    /// was given.
+    public var keyMade: Date?
 }
 public struct HostsResult: Codable, Sendable { public var hosts: [Host] }
 public struct PairStartParams: Codable, Sendable {
@@ -393,6 +403,8 @@ public enum Method: String, CaseIterable, Sendable {
     case pause, resume, history, run, subscribe, repository
     case noticeShow = "notice_show"
     case noticeTake = "notice_take"
+    case keyRotate = "key_rotate"
+    case awsAdopt = "aws_adopt"
     case defaultsSet = "defaults_set"
     case hosts
     case pairStart = "pair_start"
@@ -433,6 +445,8 @@ public enum Method: String, CaseIterable, Sendable {
         case .run: (RunParams.self, RunResult.self)
         case .noticeShow: (Notice.self, Empty.self)
         case .noticeTake: (nil, NoticeTakeResult.self)
+        case .keyRotate: (KeyRotateParams.self, JobResult.self)
+        case .awsAdopt: (AWSAdoptParams.self, AWSAdoptResult.self)
         case .repository: (nil, RepositoryResult.self)
         case .defaultsSet: (DefaultsSetParams.self, DefaultsResult.self)
         case .hosts: (nil, HostsResult.self)
