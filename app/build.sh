@@ -18,7 +18,7 @@ BUNDLE_ID="${BUNDLE_ID:-io.github.alokdhir.charm-bak}"
 SIGN_ID="${SIGN_ID:-Apple Development}"
 DEST="${DEST:-$HOME/Applications/charm-bak.app}"
 BUILD="$(date +%Y%m%d.%H%M%S)"
-VERSION="0.6.0"
+VERSION="0.6.1"
 
 RELEASE="${RELEASE:-}"
 if [ -n "$RELEASE" ]; then

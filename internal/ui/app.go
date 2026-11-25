@@ -670,6 +670,16 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keyChanges) && a.col == colSnapshots:
 			// What this snapshot changed, in front of its info.
 			return a, a.startChanges()
+		case key.Matches(msg, keyAdopt) && a.col == colSources && a.onHeader():
+			// Adopt the AWS key charm-bak didn't make (only here).
+			return a, a.startAdopt()
+		case key.Matches(msg, keyRotate) && a.col == colSources && a.onHeader() && a.selKeyManaged():
+			// Rotate the AWS key, beside its age: only here, and only a key
+			// charm-bak manages; r is Add Remote otherwise.
+			if h, _ := a.selHost(); h.Local || a.hostUp(h.Name, "Rotating its key") {
+				return a, a.startKeyRotate()
+			}
+			return a, nil
 		case key.Matches(msg, keyUp):
 			d = -1
 		case key.Matches(msg, keyDown):

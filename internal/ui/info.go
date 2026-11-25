@@ -149,7 +149,7 @@ func (a *App) infoLayout(inner int) (lines []string, owner []int) {
 		}
 	}
 	add("", -1)
-	add(styles.MutedStyle().Render("click a row to copy it · esc to close"), -1)
+	add(styles.MutedStyle().Render(a.infoKeyHint()+"click a row to copy it · esc to close"), -1)
 	return lines, owner
 }
 
@@ -174,4 +174,28 @@ func (a *App) infoFieldAt(x, y int) (infoField, bool) {
 		return infoField{}, false
 	}
 	return a.infoFields()[owner[line]], true
+}
+
+// infoKeyHint is the one action a machine's info has of its own:
+// rotating its AWS key when charm-bak manages it, adopting it when it
+// could; nothing for any other key, or one that isn't AWS.
+func (a *App) infoKeyHint() string {
+	if a.col != colSources || !a.onHeader() {
+		return ""
+	}
+	h, ok := a.selHost()
+	switch {
+	case ok && h.KeyMade != nil:
+		return "r rotate its AWS key · "
+	case ok && a.adoptable(h):
+		return "o adopt its AWS key · "
+	}
+	return ""
+}
+
+// selKeyManaged reports whether the selected header's machine has an AWS
+// key charm-bak manages (made or adopted), the only kind it rotates.
+func (a *App) selKeyManaged() bool {
+	h, ok := a.selHost()
+	return ok && h.KeyMade != nil
 }

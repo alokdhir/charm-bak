@@ -102,7 +102,7 @@ func TestHostHeadersFold(t *testing.T) {
 	if len(a.snaps) != 0 || a.snapsFor != "" {
 		t.Errorf("header loaded snapshots for %q", a.snapsFor)
 	}
-	if got := actionLabels(a); got != "Add Edit Adopt key Add Remote Info" {
+	if got := actionLabels(a); got != "Add Edit Add Remote Info" {
 		t.Errorf("local header actions %q", got)
 	}
 	n := len(a.srcRows())
@@ -122,8 +122,8 @@ func TestHostHeadersFold(t *testing.T) {
 	if a.selectedRowKey() != "#pantry" {
 		t.Errorf("down from folded studio: on %q", a.selectedRowKey())
 	}
-	if got := actionLabels(a); got != "Add Edit Remove Adopt key Add Remote Info" {
-		t.Errorf("answering remote header actions %q, want Add Edit Remove Adopt key Add Remote Info", got)
+	if got := actionLabels(a); got != "Add Edit Remove Add Remote Info" {
+		t.Errorf("answering remote header actions %q, want Add Edit Remove Add Remote Info", got)
 	}
 	press(a, "left")
 	if !a.collapsed["pantry"] {
@@ -861,44 +861,68 @@ func TestHeroLastRunNotCut(t *testing.T) {
 	}
 }
 
-// A machine whose AWS key charm-bak made offers New key on its header;
-// it asks first, and Cancel changes nothing. Without a made key there's
-// no such action.
-func TestNewKeyOnHeader(t *testing.T) {
+// A machine whose AWS key charm-bak manages is rotated from its header's
+// info (r, hinted there), not from the action bar; it asks first, and
+// Cancel changes nothing.
+func TestRotateKeyInInfo(t *testing.T) {
 	a, _ := newRemoteApp(t)
+	a.modal = nil
 	ctl := a.repo.(*backup.Fake)
 	cursorTo(t, a, "#pantry")
-	for _, act := range a.actions() {
-		if act.label == "New key" {
-			t.Fatal("New key offered for a key charm-bak didn't make")
-		}
-	}
 	made := testNow.Add(-40 * 24 * time.Hour)
 	for i := range a.hosts {
 		if a.hosts[i].Name == "pantry" {
 			a.hosts[i].KeyMade = &made
 		}
 	}
-	if !strings.Contains(ansi.Strip(a.View().Content), "[N]ew key") {
-		t.Fatalf("no New key in the action bar:\n%s", ansi.Strip(a.renderActionBar()))
+	if strings.Contains(ansi.Strip(a.renderActionBar()), "otate") {
+		t.Fatalf("Rotate key in the action bar:\n%s", ansi.Strip(a.renderActionBar()))
 	}
-	press(a, "n")
+	press(a, "i")
+	view := ansi.Strip(a.View().Content)
+	if !strings.Contains(view, "r rotate its AWS key") || !strings.Contains(view, "AWS key made") {
+		t.Fatalf("info lacks the key and its hint:\n%s", view)
+	}
+	press(a, "r")
 	c, ok := a.modal.(*confirm)
-	if !ok || !strings.Contains(c.body, "keeps the key it has") {
-		t.Fatalf("modal %T", a.modal)
+	if !ok || c.title != "Rotate pantry's AWS key?" || c.answers[0] != "Rotate it" {
+		t.Fatalf("modal %T %+v", a.modal, c)
 	}
 	press(a, "esc") // Cancel
-	if len(ctl.Rotated) != 0 {
-		t.Fatalf("rotated on cancel: %v", ctl.Rotated)
+	if len(ctl.Rotated) != 0 || !a.showInfo {
+		t.Fatalf("cancel: rotated %v, info open %v", ctl.Rotated, a.showInfo)
 	}
-	press(a, "n")
+	press(a, "r")
 	drain(a, a.modal.update(a, tea.KeyPressMsg{Code: tea.KeyEnter}))
 	if len(ctl.Rotated) != 1 || ctl.Rotated[0] != "pantry" {
 		t.Fatalf("rotations asked %v", ctl.Rotated)
 	}
-	press(a, "i")
-	if !strings.Contains(ansi.Strip(a.View().Content), "AWS key made") {
-		t.Error("info doesn't show the key's age")
+}
+
+// No rotating a key charm-bak doesn't manage, or one that isn't AWS: the
+// info offers nothing of the kind, and r there is Add Remote as ever.
+func TestRotateKeyOnlyManaged(t *testing.T) {
+	a, _ := newRemoteApp(t)
+	a.modal = nil
+	ctl := a.repo.(*backup.Fake)
+	for _, c := range []struct {
+		host string
+		repo *protocol.RepositoryInfo
+	}{
+		{"pantry", &protocol.RepositoryInfo{Location: "s3:s3.amazonaws.com/example-backups/pantry", AWSFrom: "file /var/lib/charm-bak/aws"}}, // not charm-bak's
+		{"pantry", &protocol.RepositoryInfo{Location: "b2:example-backups:pantry"}},                                                          // not AWS
+	} {
+		a.repos[c.host] = protocol.RepositoryResult{Repository: c.repo}
+		a.modal, a.showInfo = nil, false
+		cursorTo(t, a, "#"+c.host)
+		press(a, "i")
+		if view := ansi.Strip(a.View().Content); strings.Contains(view, "r rotate") {
+			t.Errorf("%s: info offers rotating:\n%s", c.repo.Location, view)
+		}
+		press(a, "r")
+		if _, ok := a.modal.(*confirm); ok || len(ctl.Rotated) != 0 {
+			t.Errorf("%s: r asked to rotate (%T, %v)", c.repo.Location, a.modal, ctl.Rotated)
+		}
 	}
 }
 
@@ -931,8 +955,12 @@ func TestAdoptOffer(t *testing.T) {
 		t.Fatal("offered twice")
 	}
 	cursorTo(t, a, "#pantry")
-	if !strings.Contains(ansi.Strip(a.renderActionBar()), "Ad[o]pt key") {
-		t.Fatalf("no Adopt key action:\n%s", ansi.Strip(a.renderActionBar()))
+	if strings.Contains(ansi.Strip(a.renderActionBar()), "dopt") {
+		t.Fatalf("Adopt key in the action bar:\n%s", ansi.Strip(a.renderActionBar()))
+	}
+	press(a, "i")
+	if view := ansi.Strip(a.View().Content); !strings.Contains(view, "o adopt its AWS key") || !strings.Contains(view, "Key rotation") {
+		t.Fatalf("info lacks adoption:\n%s", view)
 	}
 	press(a, "o")
 	drain(a, a.modal.update(a, tea.KeyPressMsg{Code: tea.KeyEnter}))

@@ -4,7 +4,7 @@ Backups for a Mac and the Linux, Mac and Windows machines around it, to storage 
 
 charm-bak is a menu bar app, a background daemon and a [Charm](https://charm.sh)-style TUI wrapped around [restic](https://restic.net). restic does the hard part: encrypted, deduplicated, compressed snapshots in S3, Backblaze B2, a drive, or anything else it supports. charm-bak does everything around it: scheduling, retention, credentials, a browser for your history, restore, diff, and running the same thing on other machines without SSH.
 
-> Status: 0.6.0. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [Not there yet](#not-there-yet).
+> Status: 0.6.1. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [Not there yet](#not-there-yet).
 
 ![charm-bak's TUI: a source's snapshots, each with how much it added, then the files in one snapshot and a preview of the selected file](docs/screenshot.png)
 
@@ -160,9 +160,9 @@ Pick S3, then **Sign in to AWS**. charm-bak runs `aws login` in your browser, in
 
 The next machine needs no sign-in: **Make <machine> a key** has the key manager make its user. Removing a machine and deleting its backups deletes its user too, if charm-bak made it. **I have a key** takes one you made yourself instead, and charm-bak then leaves your IAM users alone.
 
-**Keys it made, it rotates.** Every 90 days (the age AWS's own checks flag), charm-bak follows AWS's procedure for each machine: the key manager makes a second key, the machine is moved onto it and checked (its repository must open with it), and the old key is deleted. If any step fails, the machine keeps its current key and the failure is a notification like any other. A machine that's off or busy is tried again within the hour. `n` on a machine's header does it now, if you think a key has leaked; its info shows when the key was made.
+**Keys it made, it rotates.** Every 90 days (the age AWS's own checks flag), charm-bak follows AWS's procedure for each machine: the key manager makes a second key, the machine is moved onto it and checked (its repository must open with it), and the old key is deleted. If any step fails, the machine keeps its current key and the failure is a notification like any other. A machine that's off or busy is tried again within the hour. `r` in a machine's info (`i` on its header) rotates it now, if you think a key has leaked; the info shows when the key was made.
 
-**Keys from before can be adopted.** A machine using an AWS key charm-bak didn't make, for a user named `charm-bak-<machine>`, is offered adoption once (and **Adopt key** on its header does it any time). One AWS sign-in covers every machine waiting: each user moves under `/charm-bak/` with the same limits a made user has, and from then on charm-bak rotates its key and removes its user with the machine. The key itself stays the same until the first rotation.
+**Keys from before can be adopted.** A machine using an AWS key charm-bak didn't make, for a user named `charm-bak-<machine>`, is offered adoption once (and `o` in its info does it any time). One AWS sign-in covers every machine waiting: each user moves under `/charm-bak/` with the same limits a made user has, and from then on charm-bak rotates its key and removes its user with the machine. The key itself stays the same until the first rotation.
 
 ## Remotes and your network
 
@@ -209,7 +209,7 @@ The Mac finds a remote at the address it had when paired. If that changes, `e` o
 | `c` | what a snapshot changed since the one before |
 | `d` | diff a file or folder against the live disk |
 | `p` | pin a snapshot |
-| `n` `o` | a new AWS key now, adopt a key charm-bak didn't make (a machine's header) |
+| `r` `o` | in a machine's info: rotate its AWS key now, or adopt a key charm-bak didn't make |
 | `i` or space | info, Quick Look style |
 | `^T` `^N` | running jobs, past notifications |
 | `?` | everything else |

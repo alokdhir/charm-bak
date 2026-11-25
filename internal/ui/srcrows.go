@@ -285,7 +285,9 @@ func (a *App) hostInfoFields(h protocol.Host) []infoField {
 		f = append(f, infoField{"Last seen", stamp(a.now(), *h.LastSeen)})
 	}
 	if h.KeyMade != nil {
-		f = append(f, infoField{"AWS key made", stamp(a.now(), *h.KeyMade) + " by charm-bak; replaced every 90 days, or now with n"})
+		f = append(f, infoField{"AWS key made", stamp(a.now(), *h.KeyMade) + " by charm-bak; replaced every 90 days"})
+	} else if a.adoptable(h) {
+		f = append(f, infoField{"Key rotation", "off: charm-bak didn't make this AWS key; adopt it to have it rotated"})
 	}
 	res, ok := a.repos[h.Name]
 	if !ok {
