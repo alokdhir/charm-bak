@@ -221,6 +221,9 @@ func DefaultStorePath() string {
 // support folder; on Linux /var/lib/charm-bak for the root service, else
 // ~/.local/state/charm-bak.
 func StateDir() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.Getenv("ProgramData"), "charm-bak")
+	}
 	if runtime.GOOS != "linux" {
 		return filepath.Dir(protocol.SocketPath())
 	}

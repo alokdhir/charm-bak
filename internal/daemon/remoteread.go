@@ -464,7 +464,7 @@ func (c *Core) restoreFrom(p protocol.RestoreParams) (protocol.JobResult, error)
 	if r == nil {
 		return protocol.JobResult{}, perr(protocol.ErrNotFound, "No paired host named %s.", p.From)
 	}
-	if p.Target == protocol.RestoreOriginal || !filepath.IsAbs(p.Target) {
+	if p.Target == protocol.RestoreOriginal || !filepath.IsAbs(nativePath(p.Target)) {
 		return protocol.JobResult{}, perr(protocol.ErrBadRequest, "Restoring %s's files here needs a folder on %s: an absolute path.", p.From, c.Name)
 	}
 	if _, ok := c.remoteEngine(p.From); !ok {

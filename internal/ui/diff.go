@@ -34,6 +34,12 @@ type diffView struct {
 	loading bool
 	err     error
 	off     int
+
+	// A notification's details (noticedetail.go): Esc goes back to the
+	// list it came from, Enter does enter (go to the source).
+	back        modal
+	enter       func() tea.Cmd
+	loadingText string
 }
 
 // diffLoadedMsg carries a finished comparison to the open popup.
@@ -328,6 +334,10 @@ func (d *diffView) update(a *App, msg tea.Msg) tea.Cmd {
 	case tea.KeyPressMsg:
 		page := d.bodyRows(a)
 		switch {
+		case d.back != nil && key.Matches(msg, keyEsc):
+			a.modal = d.back
+		case d.enter != nil && key.Matches(msg, keyEnter):
+			return d.enter()
 		case key.Matches(msg, keyEsc, keyDiff, keyQuit), d.title != "" && key.Matches(msg, keyChanges):
 			a.modal = nil
 		case key.Matches(msg, keyRestore) && d.title == "":
@@ -354,7 +364,14 @@ func (d *diffView) update(a *App, msg tea.Msg) tea.Cmd {
 // subtitle, a blank line, a blank line and the hints, plus the border.
 const diffChrome = 7
 
-func (d *diffView) bodyRows(a *App) int { return max(a.bodyHeight()-diffChrome, 1) }
+func (d *diffView) bodyRows(a *App) int {
+	room := max(a.bodyHeight()-diffChrome, 1)
+	if d.back != nil && !d.loading {
+		// A notification's details: as tall as they are, up to the room.
+		return min(max(len(d.lines), 1), room)
+	}
+	return room
+}
 
 // diffInnerWidth is wide, unlike other popups: diffs need the room.
 func diffInnerWidth(width int) int { return max(width-8, 24) }
@@ -383,6 +400,9 @@ func (d *diffView) view(a *App) string {
 		if d.title != "" {
 			body = []string{styles.MutedStyle().Render("reading what changed…")}
 		}
+		if d.loadingText != "" {
+			body = []string{styles.MutedStyle().Render(d.loadingText)}
+		}
 	case d.err != nil:
 		body = []string{errorLine(d.err)}
 	default:
@@ -400,9 +420,14 @@ func (d *diffView) view(a *App) string {
 	if len(d.lines) > rows {
 		pos = fmt.Sprintf("  %d–%d of %d", d.off+1, min(d.off+rows, len(d.lines)), len(d.lines))
 	}
-	if d.title != "" {
+	switch {
+	case d.back != nil && d.enter != nil:
+		b.WriteString(hints("↑↓", "scroll", "enter", "go to its source", "esc", "back") + styles.MutedStyle().Render(pos))
+	case d.back != nil:
+		b.WriteString(hints("↑↓", "scroll", "esc", "back") + styles.MutedStyle().Render(pos))
+	case d.title != "":
 		b.WriteString(hints("↑↓", "scroll", "pgup/pgdn", "page", "esc", "close") + styles.MutedStyle().Render(pos))
-	} else {
+	default:
 		b.WriteString(hints("↑↓", "scroll", "pgup/pgdn", "page", "r", "restore", "esc", "close") + styles.MutedStyle().Render(pos))
 	}
 	return boxed(b.String(), inner)

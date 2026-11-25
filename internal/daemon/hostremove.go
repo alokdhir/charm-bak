@@ -77,7 +77,10 @@ func (c *Core) removeHost(ctx context.Context, p protocol.HostRemoveParams) (pro
 func cleanupByHand(name, goos string) string {
 	linux := "sudo systemctl disable --now charm-bak && sudo rm /etc/systemd/system/charm-bak.service /usr/local/bin/charm-bak-daemon && sudo rm -r /var/lib/charm-bak"
 	mac := "sudo launchctl bootout system/" + MacLabel + "; sudo rm /Library/LaunchDaemons/" + MacLabel + ".plist && sudo rm -r '/Library/Application Support/charm-bak'"
+	windows := "in an administrator PowerShell: sc.exe stop charm-bak; sc.exe delete charm-bak; netsh advfirewall firewall delete rule name=charm-bak; Remove-Item -Recurse -Force \"$env:ProgramFiles\\charm-bak\", \"$env:ProgramData\\charm-bak\""
 	switch goos {
+	case "windows":
+		return "On " + name + ", " + windows
 	case "linux":
 		return "On " + name + ": " + linux
 	case "darwin":

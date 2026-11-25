@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"charm.land/lipgloss/v2"
 	"strings"
 	"testing"
 	"time"
@@ -58,21 +59,55 @@ func TestNoticeList(t *testing.T) {
 	f.AddRun(protocol.Run{Job: "j-a", Kind: protocol.KindBackup, Source: &src.ID, Started: testNow.Add(-2 * time.Hour), Ended: testNow.Add(-2 * time.Hour), Status: protocol.RunFailed, Error: "bucket said no"})
 	f.AddRun(protocol.Run{Job: "j-b", Kind: protocol.KindRewrite, Source: &src.ID, Started: testNow.Add(-time.Hour), Ended: testNow.Add(-time.Hour), Status: protocol.RunOK})
 	f.AddRun(protocol.Run{Job: "j-c", Kind: protocol.KindBackup, Source: &src.ID, Started: testNow.Add(-time.Hour), Ended: testNow.Add(-30 * time.Minute), Status: protocol.RunOK})
+	f.AddRun(protocol.Run{Job: "j-d", Kind: protocol.KindBackup, Source: &src.ID, Started: testNow.Add(-20 * time.Minute), Ended: testNow.Add(-10 * time.Minute), Status: protocol.RunIncomplete, Error: "Couldn't read 1 file: /x (in use).", Skipped: 1})
 
 	press(a, "ctrl+n")
 	m, ok := a.modal.(*noticeList)
 	if !ok || m.loading {
 		t.Fatalf("^N: %T", a.modal)
 	}
-	if len(m.list) != 2 || m.list[0].run.Job != "j-b" || m.list[1].run.Job != "j-a" {
+	if len(m.list) < 3 || m.list[0].run.Job != "j-d" || m.list[1].run.Job != "j-b" || m.list[2].run.Job != "j-a" {
 		t.Fatalf("list %+v", m.list)
 	}
 	view := ansi.Strip(m.view(a))
-	for _, want := range []string{"Past snapshots of " + src.Name + " cleaned up", "Backup of " + src.Name + " failed", "bucket said no"} {
+	for _, want := range []string{"Past snapshots of " + src.Name + " cleaned up", "Backup of " + src.Name + " failed", "bucket said no", "⚠ Backup of " + src.Name + ": 1 file skipped", "/x (in use)"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
 	}
+	// Enter opens the details: every skipped file, fetched for the run;
+	// esc goes back to the list, Enter from there to the source.
+	f.SkippedFiles = map[string][]string{"j-d": {"/x (in use)", "/y (unsupported file type \"irregular\")"}}
+	press(a, "enter")
+	d, ok := a.modal.(*diffView)
+	if !ok || d.back != m {
+		t.Fatalf("details: %T", a.modal)
+	}
+	drain(a, a.openNotice(m, m.list[0]))
+	d = a.modal.(*diffView)
+	text := ansi.Strip(d.view(a))
+	for _, want := range []string{"Backup of " + src.Name + ": 1 file skipped", "Couldn't read 2 files:", "• /x (in use)", "• /y (unsupported file type \"irregular\")", "enter go to its source", "esc back"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("details lack %q:\n%s", want, text)
+		}
+	}
+	// As tall as its content, not the whole screen.
+	if h, full := lipgloss.Height(d.view(a)), a.bodyHeight(); h >= full-2 {
+		t.Errorf("details %d rows of %d", h, full)
+	}
+	// A run from before runs kept their files: the ones its reason names.
+	old := protocol.Run{Job: "j-old", Status: protocol.RunIncomplete, Skipped: 80,
+		Error: "Couldn't read 80 files: C:\\a (irregular); C:\\b (irregular); and 78 more (the daemon's log lists up to 20)."}
+	got := ansi.Strip(strings.Join(noticeLines(old, nil, 100), "\n"))
+	if !strings.Contains(got, "Couldn't read 80 files (the first 2):") || !strings.Contains(got, "• C:\\a (irregular)") || strings.Contains(got, "78 more") {
+		t.Errorf("old run:\n%s", got)
+	}
+	press(a, "esc")
+	if a.modal != m {
+		t.Fatalf("esc from details: %T", a.modal)
+	}
+	press(a, "enter")
+	drain(a, a.openNotice(m, m.list[0]))
 	press(a, "enter")
 	if a.modal != nil {
 		t.Fatal("still open")

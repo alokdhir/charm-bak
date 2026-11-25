@@ -61,8 +61,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
                     self.center.removeDeliveredNotifications(withIdentifiers: [Self.id(machine)])
                 }
             }
-        case "failed":
-            let (title, name) = Self.describe(run, host: host)
+        case "failed", "incomplete":
+            let (failedTitle, name) = Self.describe(run, host: host)
+            // Incomplete is a warning: the snapshot exists, without some files.
+            let title = run.status == "incomplete" ? Self.skippedTitle(run, name: name, host: host) : failedTitle
             queue.async {
                 self.failing[machine, default: [:]][key] = Failure(
                     title: title, name: name, error: run.error.isEmpty ? "No details; see the TUI's run log." : run.error)
@@ -71,12 +73,19 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
                 self.pending[machine] = work
                 self.queue.asyncAfter(deadline: .now() + Self.gather, execute: work)
             }
-        default: // cancelled: someone did that on purpose; incomplete: shown in the TUI
+        default: // cancelled: someone did that on purpose
             break
         }
     }
 
     private static func id(_ machine: String) -> String { "failed-" + machine }
+
+    /// "Backup of home on pantry: 12 files skipped", as the TUI's ^N says.
+    private static func skippedTitle(_ run: Run, name: String, host: String?) -> String {
+        let n = run.skipped ?? 0
+        let files = n == 0 ? "some files" : n == 1 ? "1 file" : "\(n) files"
+        return "Backup of \(name)\(host.map { " on \($0)" } ?? ""): \(files) skipped"
+    }
 
     /// On `queue`: one notification for everything failing on a machine.
     private func postFailures(_ machine: String) {
@@ -91,7 +100,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
         let names = all.map(\.name).joined(separator: ", ")
         let errors = Set(all.map(\.error))
         let why = errors.count == 1 ? first.error : "Different reasons; see the TUI's run log."
-        post(id: Self.id(machine), title: "\(all.count) backups\(on) failed", body: names + "\n" + why)
+        post(id: Self.id(machine), title: "\(all.count) backups\(on) need attention", body: names + "\n" + why)
     }
 
     /// The title for one failure ("Backup of videos on pantry failed") and

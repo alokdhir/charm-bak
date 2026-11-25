@@ -592,3 +592,28 @@ func TestDefaultExcludes(t *testing.T) {
 func (*statsEngine) Tree(context.Context, string) (map[string][]protocol.Entry, error) {
 	return map[string][]protocol.Entry{}, nil
 }
+
+// Progress divides by the last backup's size until restic's scanner has
+// found more, and never goes backwards.
+func TestSteadyPercent(t *testing.T) {
+	steady := steadyPercent(1000)
+	for _, c := range []struct {
+		done, total int64
+		want        float64
+	}{
+		{100, 120, 0.1},  // restic would say 83%
+		{150, 900, 0.15}, // the scanner catching up
+		{120, 900, 0.15}, // never backwards
+		{800, 1000, 0.8},
+		{1100, 1200, 1100.0 / 1200}, // more than last time: restic's total
+	} {
+		if got := steady(Progress{BytesDone: c.done, TotalBytes: c.total, Percent: float64(c.done) / float64(c.total)}); got != c.want {
+			t.Errorf("%d of %d: %v, want %v", c.done, c.total, got, c.want)
+		}
+	}
+	// No last backup: restic's own figure, still never backwards.
+	first := steadyPercent(0)
+	if a, b := first(Progress{BytesDone: 80, TotalBytes: 100}), first(Progress{BytesDone: 90, TotalBytes: 900}); a != 0.8 || b != 0.8 {
+		t.Errorf("first backup: %v then %v", a, b)
+	}
+}

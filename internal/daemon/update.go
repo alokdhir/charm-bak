@@ -229,7 +229,7 @@ func (c *Core) selfUpdate(p protocol.SelfUpdateParams) (protocol.SelfUpdateResul
 			u.resetLocked()
 			return protocol.SelfUpdateResult{}, perr(protocol.ErrInternal, "can't install the update: %v", err)
 		}
-		if err := os.Rename(name, c.UpdatePath); err != nil {
+		if err := replaceExecutable(name, c.UpdatePath); err != nil {
 			u.resetLocked()
 			return protocol.SelfUpdateResult{}, perr(protocol.ErrInternal, "can't install the update: %v", err)
 		}
@@ -436,6 +436,8 @@ func (c *Core) remoteDaemon(goos, arch string) string {
 		return filepath.Join(c.remoteDaemons, "linux-"+arch, "charm-bak-daemon")
 	case "darwin":
 		return filepath.Join(c.remoteDaemons, "darwin-"+arch, "charm-bak.app", "Contents", "MacOS", "charm-bak-daemon")
+	case "windows":
+		return filepath.Join(c.remoteDaemons, "windows-"+arch, "charm-bak-daemon.exe")
 	}
 	return ""
 }

@@ -746,12 +746,11 @@ func TestRemoteSetupWithKeyManager(t *testing.T) {
 	if f.step != sfHow || f.howOptions()[0].from != keyManager {
 		t.Fatalf("step %d options %+v", f.step, f.howOptions())
 	}
-	press(a, "enter")
-	for _, o := range f.howOptions() {
-		if o.from == keySignIn {
-			t.Error("connected, and still offers signing in")
-		}
+	// Signing in stays on offer (for another bucket).
+	if opts := f.howOptions(); len(opts) != 3 || opts[1].from != keySignIn {
+		t.Errorf("options %+v", opts)
 	}
+	press(a, "enter")
 	if v := f.values(); f.step != sfDetails || v["bucket"] != "charm-bak-123456789012" || v["folder"] != "pantry" {
 		t.Fatalf("step %d values %v", f.step, v)
 	}
@@ -764,6 +763,30 @@ func TestRemoteSetupWithKeyManager(t *testing.T) {
 	}
 	if f.step != sfCreate || f.location != "s3:s3.amazonaws.com/charm-bak-123456789012/pantry" {
 		t.Fatalf("step %d at %q (note %q err %v)", f.step, f.location, f.note, f.err)
+	}
+
+	// A bucket the manager doesn't serve: Enter signs in (it adds the
+	// bucket), and the screen says so before.
+	press(a, "esc")
+	for i, fl := range f.backend.Fields {
+		if fl.Key == "bucket" {
+			f.field = i
+		}
+	}
+	f.focus()
+	f.input("bucket").SetValue("den-backup")
+	f.input("bucket").CursorEnd()
+	press(a, "s") // typed, so the key made for the other bucket is dropped
+	view := ansi.Strip(f.view(a))
+	if f.step != sfDetails || !strings.Contains(view, "Enter signs in") || !strings.Contains(view, "charm-bak-boundary-den-backups") || !strings.Contains(view, "enter sign in") {
+		t.Fatalf("other bucket (step %d):\n%s", f.step, view)
+	}
+	press(a, "enter")
+	if n := len(ctl.AWSCalls); n != 2 || !ctl.AWSCalls[1].SignIn || ctl.AWSCalls[1].Bucket != "den-backups" {
+		t.Fatalf("aws_keys %+v", ctl.AWSCalls)
+	}
+	if m := f.aws.Manager; m == nil || !m.Serves("den-backups") || !m.Serves("charm-bak-123456789012") {
+		t.Errorf("manager after signing in for den-backups: %+v", f.aws.Manager)
 	}
 }
 
@@ -805,5 +828,33 @@ func TestHostRepair(t *testing.T) {
 	set(protocol.HostOK)
 	if a.modal != nil || !strings.Contains(a.statusMsg, "reinstalled") {
 		t.Errorf("after pantry came back: modal %T, status %q", a.modal, a.statusMsg)
+	}
+}
+
+// A source's Last run is never cut, at any width the TUI runs at: the
+// name and the other cells give way.
+func TestHeroLastRunNotCut(t *testing.T) {
+	a, pantry := newRemoteApp(t)
+	src, _ := pantry.Sources(t.Context())
+	cursorTo(t, a, "pantry/"+src[0].ID)
+	s, _ := a.selSource()
+	r := *s.LastRun
+	r.Status, r.Skipped = protocol.RunIncomplete, 80
+	for i := range a.sources {
+		if a.sources[i].ID == s.ID && a.sources[i].Host == s.Host {
+			a.sources[i].LastRun, a.sources[i].Health = &r, protocol.HealthSkipped
+		}
+	}
+	for _, w := range []int{100, 120, 140} {
+		a.Update(tea.WindowSizeMsg{Width: w, Height: 40})
+		hero := ansi.Strip(a.renderHero())
+		if !strings.Contains(hero, "80 files skipped") {
+			t.Errorf("width %d: last run cut:\n%s", w, hero)
+		}
+		// Retention sits on the second line, beneath Schedule.
+		lines := strings.Split(hero, "\n")
+		if len(lines) < 3 || strings.Index(lines[2], "Retention") != strings.Index(lines[1], "Schedule") {
+			t.Errorf("width %d: retention not under schedule:\n%s", w, hero)
+		}
 	}
 }

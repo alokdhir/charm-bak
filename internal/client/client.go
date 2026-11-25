@@ -556,6 +556,15 @@ func (c *Client) History(ctx context.Context, since time.Time) ([]protocol.Run, 
 	return r.Runs, err
 }
 
+// RunDetail is one run and the files it couldn't read.
+func (c *Client) RunDetail(ctx context.Context, job string) (protocol.RunResult, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	var r protocol.RunResult
+	err := c.Call(ctx, protocol.MethodRun, protocol.RunParams{Job: job}, &r)
+	return r, err
+}
+
 func (c *Client) RewriteSource(ctx context.Context, p protocol.SourceRewriteParams) (protocol.SourceRewriteResult, error) {
 	if _, ok := ctx.Deadline(); !ok && p.DryRun {
 		// A dry run reads every snapshot's tree: slow on a big source.

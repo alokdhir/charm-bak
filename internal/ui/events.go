@@ -172,7 +172,7 @@ func (a *App) handleRemoteEvent(e protocol.Event) tea.Cmd {
 		if j := a.remoteJobs[e.Host]; j != nil && j.job.ID == run.Job {
 			delete(a.remoteJobs, e.Host)
 		}
-		if run.Status == protocol.RunFailed {
+		if run.Status == protocol.RunFailed || run.Status == protocol.RunIncomplete {
 			// A remote's failure says why in the footer too, like this
 			// machine's; its red ✗ alone doesn't.
 			a.statusMsg = e.Host + ": " + a.runSummary(run)

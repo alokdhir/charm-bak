@@ -102,7 +102,7 @@ func (a *App) startRestore(n node, inPlace bool) tea.Cmd {
 	// The trailing / says it's a folder the copy goes into, not a file
 	// by that name (Alok, 2026-11-24).
 	f.folderHere = newTextField(shortPath(f.home, def)+"/", "a folder")
-	f.folderThere = newTextField("", "a folder on "+host+", e.g. /data/restored")
+	f.folderThere = newTextField("", "a folder on "+host+", e.g. /data/restored or C:\\Restored")
 	if f.offline {
 		f.here, f.inPlace = true, false
 	}
@@ -245,9 +245,9 @@ func (f *restoreForm) params() (protocol.RestoreParams, string, error) {
 	case strings.HasPrefix(dir, "~/"):
 		dir = filepath.Join(home, dir[2:])
 	}
-	if !filepath.IsAbs(dir) {
+	if !filepath.IsAbs(dir) && (f.local() || !isDrivePath(dir)) {
 		if !f.local() {
-			return p, "", fmt.Errorf("the folder needs a full path on %s, like /data/restored", f.host)
+			return p, "", fmt.Errorf("the folder needs a full path on %s, like /data/restored or C:\\Restored", f.host)
 		}
 		return p, "", fmt.Errorf("the folder needs a full path, like ~/Downloads/restored")
 	}
@@ -258,6 +258,14 @@ func (f *restoreForm) params() (protocol.RestoreParams, string, error) {
 // landsAs is where the copy ends up inside folder target, as shown: a
 // folder ends in /, so it never reads as a file.
 func (f *restoreForm) landsAs(home, target string) string {
+	if isDrivePath(target) {
+		// A Windows folder: its own separators throughout.
+		out := strings.TrimRight(strings.ReplaceAll(target, "/", `\`), `\`) + `\` + f.n.Name
+		if f.n.IsDir() {
+			out += `\`
+		}
+		return out
+	}
 	out := shortPath(home, filepath.Join(target, f.n.Name))
 	if f.n.IsDir() && !strings.HasSuffix(out, "/") {
 		out += "/"
@@ -415,4 +423,11 @@ func (f *restoreForm) fieldHelp() string {
 		return "Leaves every file on disk as it is; brings back only what's gone."
 	}
 	return ""
+}
+
+// isDrivePath reports whether p is a full Windows path (C:\x or C:/x):
+// a Windows remote's restore folder, which its daemon takes as it is.
+func isDrivePath(p string) bool {
+	return len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') &&
+		(p[0] >= 'A' && p[0] <= 'Z' || p[0] >= 'a' && p[0] <= 'z')
 }

@@ -91,7 +91,10 @@ func (f *fakeAWS) run(_ context.Context, env []string, args ...string) ([]byte, 
 		return j(map[string]any{})
 	case "iam get-user":
 		u := f.users[flag(args, "--user-name")]
-		return j(map[string]any{"User": map[string]string{"Path": u.path}})
+		return j(map[string]any{"User": map[string]any{"Path": u.path, "PermissionsBoundary": map[string]string{"PermissionsBoundaryArn": u.boundary}}})
+	case "iam put-user-permissions-boundary":
+		f.users[flag(args, "--user-name")].boundary = flag(args, "--permissions-boundary")
+		return nil, nil
 	case "iam put-user-policy":
 		f.users[flag(args, "--user-name")].policy = flag(args, "--policy-document")
 		return nil, nil
@@ -157,7 +160,7 @@ func TestAWSKeysSignIn(t *testing.T) {
 	if m == nil || m.path != "/charm-bak-manager/" || m.boundary != "" {
 		t.Fatalf("manager %+v", m)
 	}
-	if !strings.Contains(m.policy, `"iam:PermissionsBoundary":"arn:aws:iam::111122223333:policy/charm-bak-boundary-charm-bak-111122223333"`) ||
+	if !strings.Contains(m.policy, `"iam:PermissionsBoundary":["arn:aws:iam::111122223333:policy/charm-bak-boundary-charm-bak-111122223333"]`) ||
 		!strings.Contains(m.policy, `"arn:aws:iam::111122223333:user/charm-bak/*"`) || strings.Contains(m.policy, "s3:") {
 		t.Errorf("manager policy %s", m.policy)
 	}
@@ -245,7 +248,30 @@ func TestAWSKeysExisting(t *testing.T) {
 	if _, err := c2.awsKeys(context.Background(), protocol.AWSKeysParams{Host: "wren"}); err == nil {
 		t.Error("made a key with no manager")
 	}
-	if _, err := c.awsKeys(context.Background(), protocol.AWSKeysParams{Host: "wren", Bucket: "other"}); err == nil || !strings.Contains(err.Error(), "only makes keys for mine") {
+	if _, err := c.awsKeys(context.Background(), protocol.AWSKeysParams{Host: "wren", Bucket: "other"}); err == nil || !strings.Contains(err.Error(), "can't make keys for other yet") {
 		t.Errorf("other bucket: %v", err)
+	}
+
+	// Signing in for a second bucket adds it: the manager then makes keys
+	// for either, and its policy allows both boundaries.
+	f.buckets["second"] = true
+	if _, err := c.awsKeys(context.Background(), protocol.AWSKeysParams{Host: "wren", Bucket: "second", SignIn: true}); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := c.awsStatus()
+	if m := st.Manager; m == nil || m.Bucket != "second" || strings.Join(m.Buckets, ",") != "second,mine" {
+		t.Fatalf("manager after a second sign-in: %+v", st.Manager)
+	}
+	if pol := f.users["charm-bak-manager"].policy; !strings.Contains(pol, "charm-bak-boundary-mine") || !strings.Contains(pol, "charm-bak-boundary-second") {
+		t.Errorf("manager policy: %s", pol)
+	}
+	for _, b := range []string{"mine", "second"} {
+		res, err := c.awsKeys(context.Background(), protocol.AWSKeysParams{Host: "wren", Bucket: b})
+		if err != nil || res.Bucket != b {
+			t.Errorf("key for %s: %+v %v", b, res, err)
+		}
+		if u := f.users["charm-bak-wren"]; u == nil || !strings.HasSuffix(u.boundary, "charm-bak-boundary-"+b) {
+			t.Errorf("wren's boundary for %s: %+v", b, u)
+		}
 	}
 }

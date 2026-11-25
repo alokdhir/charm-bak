@@ -58,6 +58,16 @@ func backupFlags(goos string) []string {
 // FindRestic looks in the usual places: a daemon started by the menu bar
 // app or systemd gets a minimal PATH.
 func FindRestic() string {
+	if runtime.GOOS == "windows" {
+		// The installer copies restic.exe beside the daemon: a service
+		// runs as SYSTEM, without the PATH of whoever installed restic.
+		if exe, err := os.Executable(); err == nil {
+			p := filepath.Join(filepath.Dir(exe), "restic.exe")
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+		}
+	}
 	for _, p := range []string{"/opt/homebrew/bin/restic", "/usr/local/bin/restic", "/usr/bin/restic"} {
 		if fi, err := os.Stat(p); err == nil && fi.Mode()&0o111 != 0 {
 			return p
@@ -121,6 +131,12 @@ const stderrKeep = 8 << 10
 // of kept. With limit > 0, restic is stopped once that much stdout is in.
 // Cancelling ctx sends SIGINT, which lets restic remove its lock.
 func (r *ResticEngine) run(ctx context.Context, args []string, onLine func([]byte), limit int, ok ...int) (output, error) {
+	return r.runErr(ctx, args, onLine, nil, limit, ok...)
+}
+
+// runErr is run that also hands each line restic writes to stderr to
+// onErr (with --json, backup's per-file errors are JSON lines there).
+func (r *ResticEngine) runErr(ctx context.Context, args []string, onLine, onErr func([]byte), limit int, ok ...int) (output, error) {
 	env, err := r.env()
 	if err != nil {
 		return output{}, err
@@ -132,7 +148,7 @@ func (r *ResticEngine) run(ctx context.Context, args []string, onLine func([]byt
 	if err != nil {
 		return output{}, err
 	}
-	var stderr tailBuffer
+	stderr := tailBuffer{line: onErr}
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return output{}, &EngineError{Kind: ErrFailed, Code: -1, Message: "couldn't start " + r.Binary + ": " + err.Error()}
@@ -232,13 +248,31 @@ func resticError(out output) *EngineError {
 
 // tailBuffer keeps the last stderrKeep bytes written to it.
 type tailBuffer struct {
-	mu  sync.Mutex
-	buf []byte
+	mu      sync.Mutex
+	buf     []byte
+	line    func([]byte) // each whole line, when set
+	partial []byte
 }
 
 func (t *tailBuffer) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.line != nil {
+		t.partial = append(t.partial, p...)
+		for {
+			i := bytes.IndexByte(t.partial, '\n')
+			if i < 0 {
+				break
+			}
+			if l := bytes.TrimSpace(t.partial[:i]); len(l) > 0 {
+				t.line(l)
+			}
+			t.partial = t.partial[i+1:]
+		}
+		if len(t.partial) > 1<<20 {
+			t.partial = nil // not lines; don't hold it
+		}
+	}
 	t.buf = append(t.buf, p...)
 	if len(t.buf) > stderrKeep {
 		t.buf = t.buf[len(t.buf)-stderrKeep:]
@@ -391,7 +425,11 @@ func (r *ResticEngine) Snapshots(ctx context.Context, tag string) ([]EngineSnaps
 	}
 	snaps := make([]EngineSnapshot, 0, len(raw))
 	for _, s := range raw {
-		e := EngineSnapshot{ID: s.ID, ShortID: s.ShortID, Time: s.Time, Paths: s.Paths, Hostname: s.Hostname, Tags: s.Tags, Original: s.Original}
+		paths := make([]string, len(s.Paths))
+		for i, p := range s.Paths {
+			paths[i] = treePath(p) // C:\… in the list; /C/… in the tree
+		}
+		e := EngineSnapshot{ID: s.ID, ShortID: s.ShortID, Time: s.Time, Paths: paths, Hostname: s.Hostname, Tags: s.Tags, Original: s.Original}
 		if e.Tags == nil {
 			e.Tags = []string{}
 		}
@@ -595,12 +633,41 @@ func (s statusLine) progress() Progress {
 
 func (r *ResticEngine) Backup(ctx context.Context, spec BackupSpec, progress func(Progress)) (BackupResult, error) {
 	args := append([]string{"backup", "--json", "--tag", spec.Tag}, defaultBackupFlags...)
-	for _, e := range spec.Excludes {
-		args = append(args, "--exclude", e)
+	exclude := "--exclude"
+	if isWindows {
+		// Windows' disks don't care about case, so neither do its
+		// excludes; and open files are read from a shadow copy.
+		exclude = "--iexclude"
+		args = append(args, "--use-fs-snapshot")
 	}
-	args = append(args, spec.Paths...)
+	for _, e := range spec.Excludes {
+		args = append(args, exclude, nativeExclude(e))
+	}
+	for _, p := range spec.Paths {
+		args = append(args, nativePath(p))
+	}
 	var summary *statusLine
-	out, err := r.run(ctx, args, func(line []byte) {
+	var unread []string
+	unreadCount, ignored := 0, 0
+	onErr := func(line []byte) {
+		var e struct {
+			MessageType string `json:"message_type"`
+			Error       struct{ Message string }
+			Item        string
+		}
+		if json.Unmarshal(line, &e) != nil || e.MessageType != "error" {
+			return
+		}
+		if appAlias(e.Item, e.Error.Message) {
+			ignored++
+			return
+		}
+		unreadCount++
+		if len(unread) < unreadKeep {
+			unread = append(unread, unreadText(e.Item, e.Error.Message))
+		}
+	}
+	out, err := r.runErr(ctx, args, func(line []byte) {
 		var s statusLine
 		if json.Unmarshal(line, &s) != nil {
 			return
@@ -613,16 +680,56 @@ func (r *ResticEngine) Backup(ctx context.Context, spec BackupSpec, progress fun
 		case "summary":
 			summary = &s
 		}
-	}, 0, 3)
+	}, onErr, 0, 3)
 	if err != nil {
 		return BackupResult{}, err
 	}
 	if summary == nil || summary.SnapshotID == "" {
 		return BackupResult{}, &EngineError{Kind: ErrFailed, Code: out.status, Message: "restic finished without a summary"}
 	}
-	return BackupResult{Incomplete: out.status == 3, Snapshot: summary.SnapshotID, FilesNew: summary.FilesNew,
+	// Only the stubs were unreadable: nothing was missed.
+	incomplete := out.status == 3 && !(unreadCount == 0 && ignored > 0)
+	return BackupResult{Incomplete: incomplete, Unread: unread, UnreadCount: unreadCount, Snapshot: summary.SnapshotID, FilesNew: summary.FilesNew,
 		FilesChanged: summary.FilesChanged, BytesAdded: summary.DataAdded,
 		Files: summary.TotalFilesProcessed, Bytes: summary.TotalBytesProcessed}, nil
+}
+
+// unreadKeep is how many unreadable files a backup's result names (its
+// run's details list them); unreadLogged how many go in the log too.
+const (
+	unreadKeep   = 1000
+	unreadLogged = 20
+)
+
+// appAlias reports whether an unreadable file is one of Windows' App
+// Execution Aliases: the zero-byte stubs in a WindowsApps folder that
+// start Store apps by name (python.exe, winget.exe, …). restic can't store
+// that kind of link ("unsupported file type \"irregular\"", restic issue
+// #22113) and each app's installer makes its stub again, so they aren't
+// reported. Anything else there, and anything that fails another way,
+// still is.
+func appAlias(item, msg string) bool {
+	if !strings.Contains(msg, `unsupported file type "irregular"`) {
+		return false
+	}
+	dir := strings.ToLower(strings.ReplaceAll(item, `\`, "/"))
+	return strings.Contains(dir, "/appdata/local/microsoft/windowsapps/")
+}
+
+// unreadText is one unreadable file: its path and restic's reason, less
+// the "open <path>: " restic puts in front of the system's.
+func unreadText(item, msg string) string {
+	if item == "" {
+		return msg
+	}
+	reason := msg
+	for _, op := range []string{"open ", "lstat ", "read ", "readdir ", ""} {
+		if r, ok := strings.CutPrefix(msg, op+item+": "); ok {
+			reason = r
+			break
+		}
+	}
+	return item + " (" + reason + ")"
 }
 
 // keepFlags is forget's policy, or nil when every count is zero.
@@ -729,6 +836,15 @@ func (r *ResticEngine) Forget(ctx context.Context, ids []string) error {
 func literalPattern(p string) string {
 	if !strings.ContainsAny(p, `\*?[`) {
 		return p
+	}
+	if isWindows {
+		// A backslash is a separator there: escape as a class instead
+		// (tested on Windows: \[ matched a sibling, [[] matched exactly).
+		var b strings.Builder
+		for i := 0; i < len(p); i++ {
+			b.WriteString(classEscape(p[i]))
+		}
+		return b.String()
 	}
 	var b strings.Builder
 	for _, r := range p {
@@ -879,6 +995,7 @@ func (r *ResticEngine) Restore(ctx context.Context, snapshot string, paths []str
 	if target == "" {
 		target = base
 	}
+	target = nativePath(target)
 	args := []string{"restore", "--json", snapshot + ":" + base, "--target", target, "--overwrite", mode}
 	for _, p := range paths {
 		if rel := strings.TrimPrefix(p, base); rel != "" && rel != "/" {

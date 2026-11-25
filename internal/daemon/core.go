@@ -103,6 +103,8 @@ type outcome struct {
 	files, bytes           int64
 	snapshot               string
 	err                    string
+	skipped                int64
+	skippedFiles           []string
 }
 
 // Maintenance cadence and how much data the check reads back.
@@ -254,7 +256,7 @@ func (c *Core) runNextLocked() {
 func (c *Core) finish(job protocol.Job, o outcome) {
 	run := protocol.Run{Job: job.ID, Kind: job.Kind, Source: job.Source, Started: job.Started, Ended: c.now(),
 		Status: o.status, FilesNew: o.filesNew, FilesChanged: o.filesChanged, BytesAdded: o.bytesAdded, Files: o.files, Bytes: o.bytes,
-		Snapshot: o.snapshot, Error: o.err}
+		Snapshot: o.snapshot, Error: o.err, Skipped: o.skipped}
 	c.mu.Lock()
 	// A backup cut short by the daemon stopping (the app quitting, an
 	// update) leaves no run, like the queued jobs dropped with it: it's
@@ -262,7 +264,11 @@ func (c *Core) finish(job protocol.Job, o outcome) {
 	dropped := c.stopping && job.Kind == protocol.KindBackup && o.status == protocol.RunCancelled && o.snapshot == ""
 	c.mu.Unlock()
 	if !dropped {
-		if err := c.store.AddRun(run); err != nil {
+		err := c.store.AddRun(run)
+		if err == nil && len(o.skippedFiles) > 0 {
+			err = c.store.SetSkippedFiles(run.Job, o.skippedFiles)
+		}
+		if err != nil {
 			// Unrecorded, the source would look due again every minute.
 			logf("job %s: recording the run: %v", job.ID, err)
 			if job.Source != nil {
@@ -399,6 +405,7 @@ func (c *Core) Tick() {
 	if !quiet {
 		return
 	}
+	c.resticSelfUpdateIfDue(now)
 	if !c.maintenanceDue(now) {
 		return
 	}
@@ -497,7 +504,13 @@ func (c *Core) enqueueBackup(s StoredSource) protocol.Job {
 			return outcome{status: protocol.RunFailed, err: err.Error()}
 		}
 		excludes := append(slices.Clone(d.Excludes), s.Excludes...)
+		var expect int64
+		if last, err := c.store.LastRun(s.ID, protocol.KindBackup); err == nil && last != nil {
+			expect = last.Bytes
+		}
+		steady := steadyPercent(expect)
 		res, err := engine.Backup(ctx, BackupSpec{Tag: s.Tag(), Paths: s.Paths, Excludes: excludes}, func(p Progress) {
+			p.Percent = steady(p)
 			c.mu.Lock()
 			c.publish(protocol.Event{Name: protocol.EventProgress, Progress: &protocol.Progress{JobID: job.ID, Percent: p.Percent,
 				FilesDone: p.FilesDone, TotalFiles: p.TotalFiles, BytesDone: p.BytesDone, TotalBytes: p.TotalBytes, Current: p.Current}})
@@ -509,7 +522,13 @@ func (c *Core) enqueueBackup(s StoredSource) protocol.Job {
 		pins, pinErr := c.store.Pinned(s.ID)
 		o := outcome{status: protocol.RunOK, filesNew: res.FilesNew, filesChanged: res.FilesChanged, bytesAdded: res.BytesAdded, files: res.Files, bytes: res.Bytes, snapshot: res.Snapshot}
 		if res.Incomplete {
-			o.status, o.err = protocol.RunIncomplete, "Some files couldn't be read."
+			o.status, o.err, o.skipped, o.skippedFiles = protocol.RunIncomplete, unreadSummary(res), int64(res.UnreadCount), res.Unread
+			for _, u := range res.Unread[:min(len(res.Unread), unreadLogged)] {
+				logf("backup of %s couldn't read %s", s.Name, u)
+			}
+			if more := res.UnreadCount - min(len(res.Unread), unreadLogged); more > 0 {
+				logf("backup of %s couldn't read %d more (its run's details list them)", s.Name, more)
+			}
 		}
 		if pinErr != nil {
 			// Without the pins, retention could forget a pinned snapshot.
@@ -565,8 +584,10 @@ func (c *Core) sourceViewLocked(s StoredSource) (protocol.Source, error) {
 	switch {
 	case last == nil:
 		health = protocol.HealthNever
-	case last.Status == protocol.RunFailed || last.Status == protocol.RunIncomplete:
+	case last.Status == protocol.RunFailed:
 		health = protocol.HealthFailed
+	case last.Status == protocol.RunIncomplete:
+		health = protocol.HealthSkipped
 	case next != nil && now.Sub(*next) > time.Duration(eff.Schedule.Every)*time.Second:
 		health = protocol.HealthOverdue
 	}
@@ -1043,14 +1064,14 @@ func (c *Core) Handle(ctx context.Context, req protocol.Request) (any, error) {
 		if err := params(&p); err != nil {
 			return nil, err
 		}
-		if p.Target != protocol.RestoreOriginal && !filepath.IsAbs(p.Target) {
+		if p.Target != protocol.RestoreOriginal && !filepath.IsAbs(nativePath(p.Target)) {
 			return nil, perr(protocol.ErrBadRequest, "Restore target must be \"original\" or an absolute path.")
 		}
 		if p.Snapshot == "" {
 			return nil, perr(protocol.ErrBadRequest, "Restore needs a snapshot id.")
 		}
 		for _, rp := range p.Paths {
-			if !filepath.IsAbs(rp) {
+			if !isTreeAbs(rp) {
 				return nil, perr(protocol.ErrBadRequest, "Restore paths must be absolute: %s", rp)
 			}
 		}
@@ -1109,7 +1130,7 @@ func (c *Core) Handle(ctx context.Context, req protocol.Request) (any, error) {
 		if err := params(&p); err != nil {
 			return nil, err
 		}
-		if len(p.Paths) == 0 || slices.ContainsFunc(p.Paths, func(s string) bool { return !filepath.IsAbs(s) }) {
+		if len(p.Paths) == 0 || slices.ContainsFunc(p.Paths, func(s string) bool { return !isTreeAbs(s) }) {
 			return nil, perr(protocol.ErrBadRequest, "A source needs at least one absolute path.")
 		}
 		src := StoredSource{Name: p.Name, Paths: p.Paths, Excludes: p.Excludes, Retention: p.Retention, ScheduleSet: p.Schedule != nil}
@@ -1288,6 +1309,20 @@ func (c *Core) Handle(ctx context.Context, req protocol.Request) (any, error) {
 		}
 		return protocol.SnapshotResult{Snapshot: v}, nil
 
+	case protocol.MethodRun:
+		var p protocol.RunParams
+		if err := params(&p); err != nil {
+			return nil, err
+		}
+		run, files, err := c.store.Run(p.Job)
+		if err != nil {
+			return nil, err
+		}
+		if run == nil {
+			return nil, perr(protocol.ErrNotFound, "No run %s.", p.Job)
+		}
+		return protocol.RunResult{Run: *run, SkippedFiles: files}, nil
+
 	case protocol.MethodHistory:
 		var p protocol.HistoryParams
 		if err := params(&p); err != nil {
@@ -1322,6 +1357,7 @@ func diffLive(saved []protocol.Entry, dir string) []protocol.DiffEntry {
 		mtime time.Time
 	}
 	live := map[string]liveEntry{}
+	dir = nativePath(dir)
 	des, _ := os.ReadDir(dir)
 	for _, de := range des {
 		info, err := os.Lstat(filepath.Join(dir, de.Name()))
@@ -1368,12 +1404,16 @@ func diffLive(saved []protocol.Entry, dir string) []protocol.DiffEntry {
 // readLive reads the first limit bytes of a regular file on disk.
 // listLive is ls on the disk as it is now (snapshot "live"): what the
 // add-source picker browses, on whichever machine the source will be.
-// Entries that vanish or can't be read mid-listing are skipped.
+// Entries that vanish or can't be read mid-listing are skipped, and so
+// are Windows' hidden system entries (hiddenSystem).
 func listLive(dir string) ([]protocol.Entry, error) {
-	if !filepath.IsAbs(dir) {
+	if !isTreeAbs(dir) {
 		return nil, perr(protocol.ErrBadRequest, "Path must be absolute.")
 	}
-	des, err := os.ReadDir(dir)
+	if isWindows && strings.Trim(dir, "/") == "" {
+		return listDrives(), nil
+	}
+	des, err := os.ReadDir(nativePath(dir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, perr(protocol.ErrNotFound, "%s isn't on disk.", dir)
 	}
@@ -1383,7 +1423,7 @@ func listLive(dir string) ([]protocol.Entry, error) {
 	out := make([]protocol.Entry, 0, len(des))
 	for _, de := range des {
 		info, err := de.Info()
-		if err != nil {
+		if err != nil || hiddenSystem(info) {
 			continue
 		}
 		e := protocol.Entry{Name: de.Name(), Size: info.Size(), Mode: info.Mode().String(), MTime: info.ModTime()}
@@ -1404,10 +1444,10 @@ func listLive(dir string) ([]protocol.Entry, error) {
 }
 
 func readLive(p string, limit int) ([]byte, int64, error) {
-	if !filepath.IsAbs(p) {
+	if !isTreeAbs(p) {
 		return nil, 0, perr(protocol.ErrBadRequest, "Path must be absolute.")
 	}
-	f, err := os.Open(p)
+	f, err := os.Open(nativePath(p))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, 0, perr(protocol.ErrNotFound, "%s isn't on disk.", p)
 	}
@@ -1514,4 +1554,43 @@ func (c *Core) jobWhat(job protocol.Job) string {
 		return job.Kind + " of " + s.Name
 	}
 	return job.Kind + " of " + *job.Source
+}
+
+// unreadSummary is an incomplete backup's reason: how many files it
+// couldn't read, the first few by name and why.
+func unreadSummary(res BackupResult) string {
+	n := max(res.UnreadCount, len(res.Unread))
+	if n == 0 {
+		return "Some files couldn't be read."
+	}
+	files := "1 file"
+	if n > 1 {
+		files = fmt.Sprintf("%d files", n)
+	}
+	shown := res.Unread[:min(len(res.Unread), 3)]
+	msg := "Couldn't read " + files + ": " + strings.Join(shown, "; ")
+	if more := n - len(shown); more > 0 {
+		msg += fmt.Sprintf("; and %d more", more)
+	}
+	return msg + "."
+}
+
+// steadyPercent turns restic's backup progress into a percentage that
+// doesn't jump. restic divides the bytes it has processed by the bytes
+// its scanner has found so far, and the scanner runs alongside, so early
+// on the total is small and the percentage high, then it drops each time
+// the scanner finds more. Dividing by the larger of that and the last
+// backup's size (expect) gets the total about right from the start, and
+// the result never goes backwards.
+func steadyPercent(expect int64) func(Progress) float64 {
+	shown := 0.0
+	return func(p Progress) float64 {
+		total := max(p.TotalBytes, expect)
+		pct := p.Percent
+		if total > 0 {
+			pct = float64(p.BytesDone) / float64(total)
+		}
+		shown = max(shown, min(pct, 1))
+		return shown
+	}
 }

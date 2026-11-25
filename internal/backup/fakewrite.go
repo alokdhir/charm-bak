@@ -413,13 +413,15 @@ func (f *Fake) PairStart(_ context.Context, p protocol.PairStartParams) (protoco
 		return protocol.PairStartResult{}, &protocol.Error{Code: protocol.ErrBadRequest, Message: "A host name is lowercase letters, digits and dashes, like pantry."}
 	}
 	return protocol.PairStartResult{Command: "curl -fsS --pinnedpubkey 'sha256//47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' -k https://192.168.1.2:7458/i/MFRGGZDFMZTWQ2LK | sudo sh",
-		Expires: f.Now.Add(10 * time.Minute)}, nil
+		WindowsCommand: "curl.exe -fsS --pinnedpubkey 'sha256//47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' -k https://192.168.1.2:7458/w/MFRGGZDFMZTWQ2LK -o $env:TEMP\\charm-bak.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\charm-bak.ps1",
+		Expires:        f.Now.Add(10 * time.Minute)}, nil
 }
 
 // HostRepair hands out a fixture command for a known remote.
 func (f *Fake) HostRepair(_ context.Context, name string) (protocol.PairStartResult, error) {
 	return protocol.PairStartResult{Command: "curl -fsS --pinnedpubkey 'sha256//47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' -k https://192.168.1.2:7458/i/REPAIRREPAIRREPA | sudo sh",
-		Expires: f.Now.Add(10 * time.Minute)}, nil
+		WindowsCommand: "curl.exe -fsS --pinnedpubkey 'sha256//47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' -k https://192.168.1.2:7458/w/REPAIRREPAIRREPA -o $env:TEMP\\charm-bak.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\charm-bak.ps1",
+		Expires:        f.Now.Add(10 * time.Minute)}, nil
 }
 
 // SetFullDiskAccess makes this fixture machine a Mac with or without
@@ -527,6 +529,19 @@ func (f *Fake) SetHostAddress(_ context.Context, p protocol.HostSetParams) (prot
 	}
 	f.addrs[p.Name] = addr
 	return protocol.Host{Name: p.Name, Address: addr, State: protocol.HostOK}, nil
+}
+
+// RunDetail finds a run in History; SkippedFiles holds its files.
+func (f *Fake) RunDetail(ctx context.Context, job string) (protocol.RunResult, error) {
+	runs, _ := f.History(ctx, time.Time{})
+	for _, r := range runs {
+		if r.Job == job {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return protocol.RunResult{Run: r, SkippedFiles: append([]string{}, f.SkippedFiles[job]...)}, nil
+		}
+	}
+	return protocol.RunResult{}, &protocol.Error{Code: protocol.ErrNotFound, Message: "No run " + job + "."}
 }
 
 // AddRun adds a finished run to History, for tests.

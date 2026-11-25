@@ -13,7 +13,7 @@ BUNDLE_ID="${BUNDLE_ID:-io.github.alokdhir.charm-bak}"
 SIGN_ID="${SIGN_ID:-Apple Development}"
 DEST="${DEST:-$HOME/Applications/charm-bak.app}"
 BUILD="$(date +%Y%m%d.%H%M%S)"
-VERSION="0.3.0"
+VERSION="0.4.0"
 
 swift build -c release --quiet
 BIN="$(swift build -c release --show-bin-path)/CharmBak"
@@ -38,6 +38,10 @@ strip -x "$STAGE/Contents/MacOS/charm-bak"
 # data to codesign, not code it checks).
 for arch in amd64 arm64; do
     (cd .. && CGO_ENABLED=0 GOOS=linux GOARCH=$arch "${GOBUILD[@]}" -o "$STAGE/Contents/Resources/linux-$arch/charm-bak-daemon" ./cmd/charm-bak-daemon)
+done
+# Windows daemons, for Windows remotes (install.ps1 fetches them).
+for arch in amd64 arm64; do
+    (cd .. && CGO_ENABLED=0 GOOS=windows GOARCH=$arch "${GOBUILD[@]}" -o "$STAGE/Contents/Resources/windows-$arch/charm-bak-daemon.exe" ./cmd/charm-bak-daemon)
 done
 ICONSET="$(dirname "$STAGE")/AppIcon.iconset"
 "$BIN" --render-icon "$ICONSET"

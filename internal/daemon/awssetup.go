@@ -127,6 +127,9 @@ func (c *Core) awsStatus() (protocol.AWSStatusResult, error) {
 	}
 	if ok {
 		if _, err := c.readSecret(awsKeychainService, awsManagerAccount); err == nil {
+			if len(m.Buckets) == 0 && m.Bucket != "" {
+				m.Buckets = []string{m.Bucket} // saved before there were several
+			}
 			res.Manager = &m
 		}
 	}
@@ -155,8 +158,15 @@ func (c *Core) awsKeys(ctx context.Context, p protocol.AWSKeysParams) (protocol.
 	if m == nil {
 		return protocol.AWSKeysResult{}, perr(protocol.ErrNotConfigured, "There's no key manager here yet; sign in to AWS to set one up.")
 	}
-	if p.Bucket != "" && p.Bucket != m.Bucket {
-		return protocol.AWSKeysResult{}, perr(protocol.ErrBadRequest, "The key manager only makes keys for %s; sign in to AWS to use %s.", m.Bucket, p.Bucket)
+	bucket, region := m.Bucket, m.Region
+	if p.Bucket != "" {
+		bucket = p.Bucket
+	}
+	if p.Region != "" {
+		region = p.Region
+	}
+	if !m.Serves(bucket) {
+		return protocol.AWSKeysResult{}, perr(protocol.ErrBadRequest, "charm-bak's key can't make keys for %s yet; sign in to AWS once to use it.", bucket)
 	}
 	key, err := c.readSecret(awsKeychainService, awsManagerAccount)
 	if err != nil {
@@ -167,16 +177,16 @@ func (c *Core) awsKeys(ctx context.Context, p protocol.AWSKeysParams) (protocol.
 		return protocol.AWSKeysResult{}, err
 	}
 	logf("making %s's AWS key with the key manager", host)
-	made, err := c.awsMachineKey(ctx, env, m.Account, m.Bucket, host)
+	made, err := c.awsMachineKey(ctx, env, m.Account, bucket, host)
 	if err != nil {
 		return protocol.AWSKeysResult{}, awsPerr(err)
 	}
-	c.awsStep(host, protocol.AWSStepUser, m.Account, m.Bucket)
-	if err := c.awsKeyWorks(ctx, made, m.Region); err != nil {
+	c.awsStep(host, protocol.AWSStepUser, m.Account, bucket)
+	if err := c.awsKeyWorks(ctx, made, region); err != nil {
 		return protocol.AWSKeysResult{}, awsPerr(err)
 	}
-	c.awsStep(host, protocol.AWSStepKeyWorks, m.Account, m.Bucket)
-	return protocol.AWSKeysResult{Bucket: m.Bucket, Region: m.Region, Env: made}, nil
+	c.awsStep(host, protocol.AWSStepKeyWorks, m.Account, bucket)
+	return protocol.AWSKeysResult{Bucket: bucket, Region: region, Env: made}, nil
 }
 
 func awsPerr(err error) error {
@@ -352,17 +362,23 @@ func machinePolicy(bucket, host string) string {
 }
 
 // managerPolicy lets the key manager make, change and delete users at
-// /charm-bak/ only, and only with the boundary (IAM's documented pattern
-// for delegating user creation: the iam:PermissionsBoundary condition on
-// CreateUser, PutUserPolicy and DeleteUserPolicy). It has no S3 access and
-// can't touch policies, so it can't give anyone more than the bucket.
-func managerPolicy(account, bucket string) string {
+// /charm-bak/ only, and only with one of the buckets' boundaries (IAM's
+// documented pattern for delegating user creation: the
+// iam:PermissionsBoundary condition on CreateUser, PutUserPolicy,
+// DeleteUserPolicy and PutUserPermissionsBoundary; several values in StringEquals match any of them). It
+// has no S3 access and can't touch policies, so it can't give anyone more
+// than one of those buckets.
+func managerPolicy(account string, buckets []string) string {
 	users := "arn:aws:iam::" + account + ":user" + awsMachinePath + "*"
+	var bounds []string
+	for _, b := range buckets {
+		bounds = append(bounds, "arn:aws:iam::"+account+":policy/"+boundaryName(b))
+	}
 	return policyJSON(
 		map[string]any{"Sid": "WithBoundaryOnly", "Effect": "Allow",
-			"Action":    []string{"iam:CreateUser", "iam:PutUserPolicy", "iam:DeleteUserPolicy"},
+			"Action":    []string{"iam:CreateUser", "iam:PutUserPolicy", "iam:DeleteUserPolicy", "iam:PutUserPermissionsBoundary"},
 			"Resource":  users,
-			"Condition": map[string]any{"StringEquals": map[string]any{"iam:PermissionsBoundary": "arn:aws:iam::" + account + ":policy/" + boundaryName(bucket)}}},
+			"Condition": map[string]any{"StringEquals": map[string]any{"iam:PermissionsBoundary": bounds}}},
 		map[string]any{"Sid": "MachineUsers", "Effect": "Allow",
 			"Action":   []string{"iam:GetUser", "iam:DeleteUser", "iam:ListUserPolicies", "iam:ListAccessKeys", "iam:CreateAccessKey", "iam:DeleteAccessKey"},
 			"Resource": users},
@@ -370,8 +386,23 @@ func managerPolicy(account, bucket string) string {
 }
 
 // awsManager makes (or remakes) the boundary and the key manager, keeps
-// its key in the Keychain and remembers which bucket it serves.
+// its key in the Keychain and remembers which buckets it serves: this one
+// added to those it already did in the same account.
 func (c *Core) awsManager(ctx context.Context, env []string, account, bucket, region string) error {
+	buckets := []string{bucket}
+	var old protocol.AWSManager
+	if ok, err := c.store.Setting(awsSettingManager, &old); err != nil {
+		return err
+	} else if ok && old.Account == account {
+		if len(old.Buckets) == 0 && old.Bucket != "" {
+			old.Buckets = []string{old.Bucket}
+		}
+		for _, b := range old.Buckets {
+			if b != bucket {
+				buckets = append(buckets, b)
+			}
+		}
+	}
 	_, err := c.aws(ctx, env, "iam", "create-policy", "--policy-name", boundaryName(bucket),
 		"--description", "charm-bak: the most a machine's key can do (bucket "+bucket+")",
 		"--policy-document", boundaryPolicy(bucket))
@@ -383,7 +414,7 @@ func (c *Core) awsManager(ctx context.Context, env []string, account, bucket, re
 		return err
 	}
 	if _, err := c.aws(ctx, env, "iam", "put-user-policy", "--user-name", awsManagerUser,
-		"--policy-name", "charm-bak-manager", "--policy-document", managerPolicy(account, bucket)); err != nil {
+		"--policy-name", "charm-bak-manager", "--policy-document", managerPolicy(account, buckets)); err != nil {
 		return err
 	}
 	key, err := c.awsFreshKey(ctx, env, awsManagerUser)
@@ -393,8 +424,8 @@ func (c *Core) awsManager(ctx context.Context, env []string, account, bucket, re
 	if err := c.addSecret(awsKeychainService, awsManagerAccount, "charm-bak AWS key manager", key); err != nil {
 		return err
 	}
-	logf("AWS: key manager %s set up for bucket %s", awsManagerUser, bucket)
-	return c.store.SetSetting(awsSettingManager, protocol.AWSManager{Account: account, Bucket: bucket, Region: region})
+	logf("AWS: key manager %s set up for %s", awsManagerUser, strings.Join(buckets, ", "))
+	return c.store.SetSetting(awsSettingManager, protocol.AWSManager{Account: account, Bucket: bucket, Buckets: buckets, Region: region})
 }
 
 // awsFreshKey deletes user's access keys and makes a new one, returned as
@@ -429,15 +460,21 @@ func (c *Core) awsFreshKey(ctx context.Context, env []string, user string) (stri
 // restic's environment.
 func (c *Core) awsMachineKey(ctx context.Context, env []string, account, bucket, host string) (map[string]string, error) {
 	user := "charm-bak-" + host
+	boundary := "arn:aws:iam::" + account + ":policy/" + boundaryName(bucket)
 	_, err := c.aws(ctx, env, "iam", "create-user", "--user-name", user, "--path", awsMachinePath,
-		"--permissions-boundary", "arn:aws:iam::"+account+":policy/"+boundaryName(bucket))
+		"--permissions-boundary", boundary)
 	if err != nil && awsCode(err) != "EntityAlreadyExists" {
 		return nil, err
 	}
 	if err != nil {
 		// Already there: one charm-bak made can be reused; one made some
 		// other way (another path) isn't charm-bak's to change.
-		var u struct{ User struct{ Path string } }
+		var u struct {
+			User struct {
+				Path                string
+				PermissionsBoundary struct{ PermissionsBoundaryArn string }
+			}
+		}
 		if err := c.awsJSON(ctx, env, &u, "iam", "get-user", "--user-name", user); err != nil {
 			if awsCode(err) == "AccessDenied" {
 				return nil, perr(protocol.ErrBadRequest, "There's already an IAM user %s that charm-bak didn't make. Delete it or rename this machine.", user)
@@ -446,6 +483,17 @@ func (c *Core) awsMachineKey(ctx context.Context, env []string, account, bucket,
 		}
 		if u.User.Path != awsMachinePath {
 			return nil, perr(protocol.ErrBadRequest, "There's already an IAM user %s that charm-bak didn't make. Delete it or rename this machine.", user)
+		}
+		// Made for another bucket: its boundary moves to this one's, or
+		// the new policy could never reach this bucket.
+		if u.User.PermissionsBoundary.PermissionsBoundaryArn != boundary {
+			if _, err := c.aws(ctx, env, "iam", "put-user-permissions-boundary", "--user-name", user,
+				"--permissions-boundary", boundary); err != nil {
+				if awsCode(err) == "AccessDenied" {
+					return nil, perr(protocol.ErrBadRequest, "%s's key was made for another bucket, and charm-bak's key can't move it. Sign in to AWS once to use this bucket.", host)
+				}
+				return nil, err
+			}
 		}
 	}
 	if _, err := c.aws(ctx, env, "iam", "put-user-policy", "--user-name", user,

@@ -111,7 +111,11 @@ type Progress struct {
 type BackupResult struct {
 	// Incomplete: some files couldn't be read (restic exit 3); the
 	// snapshot exists but is missing them.
-	Incomplete   bool
+	Incomplete bool
+	// Unread names the first files that couldn't be read, with the
+	// reason ("C:\\pagefile.sys (in use)"); UnreadCount is all of them.
+	Unread       []string
+	UnreadCount  int
 	Snapshot     string
 	FilesNew     int64
 	FilesChanged int64

@@ -67,6 +67,8 @@ type Fake struct {
 	// Cancelled is every job cancel was asked for.
 	Cancelled []string
 	runs      []protocol.Run // History beyond the sources' last runs
+	// SkippedFiles is RunDetail's files by job, for tests.
+	SkippedFiles map[string][]string
 }
 
 // fakeNode describes a fixture tree: a file when children is nil.
@@ -128,6 +130,8 @@ func NewFake(now time.Time) *Fake {
 		next := last.Add(t.every)
 		health := protocol.HealthOK
 		switch {
+		case t.status == protocol.RunIncomplete:
+			health = protocol.HealthSkipped
 		case t.status != protocol.RunOK:
 			health = protocol.HealthFailed
 		case now.Sub(next) > t.every:

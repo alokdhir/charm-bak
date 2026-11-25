@@ -279,7 +279,7 @@ func (a *App) openNotices() tea.Cmd {
 			out  noticesMsg
 			ctx  = context.Background()
 			keep = func(r protocol.Run) bool {
-				return r.Status == protocol.RunFailed || (r.Kind == protocol.KindRewrite && r.Status == protocol.RunOK)
+				return r.Status == protocol.RunFailed || r.Status == protocol.RunIncomplete || (r.Kind == protocol.KindRewrite && r.Status == protocol.RunOK)
 			}
 		)
 		for _, s := range srcs {
@@ -327,6 +327,8 @@ func (a *App) noticeTitle(n notice) string {
 		return "Past snapshots of " + name + on + " cleaned up"
 	}
 	switch {
+	case n.run.Status == protocol.RunIncomplete && name != "":
+		return "Backup of " + name + on + ": " + skippedText(n.run.Skipped)
 	case n.run.Kind == protocol.KindBackup && name != "":
 		return "Backup of " + name + on + " failed"
 	case n.run.Kind == protocol.KindRewrite:
@@ -357,11 +359,7 @@ func (m *noticeList) update(a *App, msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, keyDown):
 			m.cur = min(m.cur+1, max(len(m.list)-1, 0))
 		case key.Matches(msg, keyEnter) && m.cur < len(m.list):
-			n := m.list[m.cur]
-			if n.run.Source != nil {
-				a.modal = nil
-				return a.goToSource(n.host, *n.run.Source)
-			}
+			return a.openNotice(m, m.list[m.cur])
 		}
 	}
 	return nil
@@ -401,8 +399,11 @@ func (m *noticeList) view(a *App) string {
 	for i := m.top; i < len(m.list) && i < m.top+fits; i++ {
 		n := m.list[i]
 		mark := styles.HealthStyle(styles.Fail).Render("✗ ")
-		if n.run.Status == protocol.RunOK {
+		switch n.run.Status {
+		case protocol.RunOK:
 			mark = styles.HealthStyle(styles.OK).Render("✓ ")
+		case protocol.RunIncomplete:
+			mark = styles.HealthStyle(styles.Warn).Render("⚠ ")
 		}
 		title := a.noticeTitle(n)
 		if i == m.cur {
@@ -427,9 +428,20 @@ func (m *noticeList) view(a *App) string {
 		b.WriteString(styles.HealthStyle(styles.Warn).Width(inner).MaxHeight(1).Render("Not answering, so not listed: "+strings.Join(m.errs, ", ")) + "\n\n")
 	}
 	keys := []string{"↑/↓", "move"}
-	if m.cur < len(m.list) && m.list[m.cur].run.Source != nil {
-		keys = append(keys, "enter", "go to its source")
+	if m.cur < len(m.list) {
+		keys = append(keys, "enter", "details")
 	}
 	b.WriteString(hints(append(keys, "esc", "close")...))
 	return boxed(b.String(), inner)
+}
+
+// skippedText is an incomplete backup in a few words: "12 files skipped".
+func skippedText(n int64) string {
+	switch n {
+	case 0:
+		return "some files skipped"
+	case 1:
+		return "1 file skipped"
+	}
+	return fmt.Sprintf("%d files skipped", n)
 }

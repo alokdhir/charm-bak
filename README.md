@@ -1,10 +1,10 @@
 # charm-bak
 
-Backups for a Mac and the Linux boxes around it, to storage you own, with a terminal UI you'd actually want to open.
+Backups for a Mac and the Linux, Mac and Windows machines around it, to storage you own, with a terminal UI you'd actually want to open.
 
 charm-bak is a menu bar app, a background daemon and a [Charm](https://charm.sh)-style TUI wrapped around [restic](https://restic.net). restic does the hard part: encrypted, deduplicated, compressed snapshots in S3, Backblaze B2, a drive, or anything else it supports. charm-bak does everything around it: scheduling, retention, credentials, a browser for your history, restore, diff, and running the same thing on other machines without SSH.
 
-> Status: 0.3, pre-release. It backs up the author's Mac and home server every hour, and has been paired with a second Mac as a remote. What's still missing is listed under [What's rough](#whats-rough).
+> Status: 0.4, pre-release. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [What's rough](#whats-rough).
 
 ![charm-bak's TUI: a source's snapshots, each with how much it added, then the files in one snapshot and a preview of the selected file](docs/screenshot.png)
 
@@ -24,7 +24,7 @@ charm-bak is the missing layer for someone who wants restic's engine, their own 
 
 ## What it does
 
-**Backs up on its own.** Each machine's daemon checks every minute for what's due, so runs missed while a laptop slept catch up on wake. Backups, cleanup and integrity checks are all scheduled for you. A failed run posts a macOS notification; successes stay quiet.
+**Backs up on its own.** Each machine's daemon checks every minute for what's due, so runs missed while a laptop slept catch up on wake. Backups, cleanup and integrity checks are all scheduled for you. A failed run posts a macOS notification, and so does a backup that had to skip files it couldn't read (a warning: the snapshot is there, without them); successes stay quiet. `^N` lists past notifications, and Enter on one shows the whole story: when, how long, and the full reason, or every skipped file and why.
 
 **Sets itself up.** First launch walks through one decision per screen: where the backups go, the details, a check that it works, and the recovery key. For S3 it can sign in to AWS in the browser and make the bucket and a key limited to that machine's own folder. The repository password is generated for you, stored in the Keychain, and shown once to write down.
 
@@ -42,11 +42,11 @@ charm-bak is the missing layer for someone who wants restic's engine, their own 
 
 **Takes things back out.** Backed up something you shouldn't have? Exclude it from future runs, or remove it from past snapshots too.
 
-**Runs on your other machines without SSH.** Add Remote shows one command to paste on a Linux box or another Mac. It installs the same daemon there, pairs it with this Mac over mutually authenticated TLS, and from then on that machine backs up on its own schedule with its own credentials, whether the Mac is awake or not. You configure, browse and restore all of them from the one TUI, and their failures arrive as notifications on the Mac.
+**Runs on your other machines without SSH.** Add Remote shows one command to paste on a Linux box or another Mac, or into an administrator PowerShell on Windows (Tab switches between them). It installs the same daemon there as a service (on Windows with restic from winget, Volume Shadow Copy for open files, and a firewall rule), pairs it with this Mac over mutually authenticated TLS, and from then on that machine backs up on its own schedule with its own credentials, whether the Mac is awake or not. You configure, browse and restore all of them from the one TUI, and their failures arrive as notifications on the Mac.
 
 **Keeps working when a machine is down.** The Mac reads each remote's repository itself rather than asking the remote, so a server that's crashed or a laptop that's asleep can still be browsed, compared and restored from, which is exactly when you need it. Actions that need the machine itself (editing its sources, backing it up now) are dimmed until it's back, and it's picked up within seconds when it returns.
 
-**Updates its remotes itself.** The app carries the daemon built for Linux (amd64 and arm64) and for Mac remotes, and whenever the Mac connects to a remote running a different build, it sends the new one over the paired connection; the remote checks it, swaps itself and restarts in place. There's nothing to install or update by hand on a remote after the first command.
+**Updates its remotes itself.** The app carries the daemon built for Linux and Windows (amd64 and arm64) and for Mac remotes, and whenever the Mac connects to a remote running a different build, it sends the new one over the paired connection; the remote checks it, swaps itself and restarts in place. There's nothing to install or update by hand on a remote after the first command.
 
 **Stays out of the way of restic.** The repository is a plain restic repository. `eval "$(charm-bak -env)"` sets up a shell so any `restic` command works against it, and if charm-bak disappeared tomorrow, restic alone could restore everything.
 
@@ -100,7 +100,7 @@ Three parts, deliberately separate:
 - **`charm-bak.app`** (Swift, thin) is the menu bar icon, notifications and login item. It carries the daemon inside its bundle and starts it as a child, so the daemon inherits the app's Full Disk Access.
 - **The TUI** (Go, [Bubble Tea](https://github.com/charmbracelet/bubbletea)) is a pure client. It holds no credentials and never touches the repository; it talks to the daemon over a Unix socket.
 
-Secrets stay on the machine that uses them: in the Keychain on a Mac, in root-only files on a Linux remote. They are handed to restic through its environment for that one process and never appear on a command line or in a log.
+Secrets stay on the machine that uses them: in the Keychain on a Mac, in files only root (Linux) or SYSTEM and Administrators (Windows) can read on a remote. They are handed to restic through its environment for that one process and never appear on a command line or in a log.
 
 `docs/design.md` covers the design, `docs/protocol.md` the socket protocol, and `AGENTS.md` the running record of decisions.
 
@@ -137,7 +137,7 @@ To try the interface without setting anything up, `go run . --fake` runs the TUI
 One Mac is in charge. It runs the TUI and the menu bar app, and its daemon configures and follows every remote. Each remote runs the same daemon, backing up to its own repository on its own schedule and with its own credentials. The Mac also reads every remote's repository directly, so a remote that's off or broken can still be browsed and restored from.
 
 ```
- your Mac, in charge                                  each remote: Linux or another Mac
+ your Mac, in charge                                  each remote: Linux, a Mac or Windows
 ┌─────────────────────────────┐                      ┌─────────────────────────────┐
 │ TUI, menu bar               │                      │ charm-bak-daemon            │
 │   │ Unix socket             │                      │ its own sources, schedule   │
@@ -162,7 +162,7 @@ Adding a remote needs two connections to get through any firewall between the ma
 | TCP **7457** | Mac → remote | always | The Mac's daemon connects to the remote's to configure it, follow its jobs and send updates. The remote listens here; nothing else does. |
 | TCP **7458** | remote → Mac | only while Add Remote is open | The remote fetches its installer and daemon from the Mac and pairs. The Mac stops listening when pairing ends. |
 
-Port 7457 is TLS between keys pinned at pairing, so a device that isn't paired gets nothing from it. Port 7458 serves the installer only to whoever has the one-time code in the command you paste. If the remote runs a host firewall (`ufw`, `firewalld`, the macOS firewall), allow inbound TCP 7457 from the Mac. Each machine also needs its own outbound route to the storage it backs up to; backups don't pass through the Mac.
+Port 7457 is TLS between keys pinned at pairing, so a device that isn't paired gets nothing from it. Port 7458 serves the installer only to whoever has the one-time code in the command you paste. If the remote runs a host firewall (`ufw`, `firewalld`, the macOS firewall), allow inbound TCP 7457 from the Mac; on Windows the installer adds that rule itself. Each machine also needs its own outbound route to the storage it backs up to; backups don't pass through the Mac.
 
 The Mac finds a remote at the address it had when paired. If that changes, `e` on the remote's header has an Address tab. A remote that's off or unreachable is retried every few seconds and picked up when it's back; meanwhile its backups stay browsable and restorable from the Mac.
 
@@ -186,6 +186,7 @@ The Mac finds a remote at the address it had when paired. If that changes, `e` o
 - **Mounting snapshots as a folder isn't in the TUI.** restic can do it, and you can run it by hand against this Mac's repository; see [Mounting by hand](#mounting-by-hand).
 - **No prebuilt, notarized release.** You build and sign it yourself for now.
 - **Linux and Windows desktops** have no UI of their own; they are remotes of a Mac.
+- **Windows remotes are new.** Tested end to end on a Windows 11 ARM64 machine: install, pairing, setup, backups with shadow copies, updates and removal. restic publishes no ARM64 Windows build yet, so ARM machines run the x64 one under emulation. Since Windows has no package manager that keeps restic current for a service, charm-bak runs `restic self-update` there once a week. Windows' App Execution Aliases (the stubs in `AppData\Local\Microsoft\WindowsApps`) can't be stored by restic and are passed over quietly.
 
 ## Mounting by hand
 

@@ -40,6 +40,42 @@ type addRemote struct {
 	// its state. Done once the remote has gone and come back.
 	repair  bool
 	sawDown bool // the remote stopped answering since the command was shown
+
+	// win shows the Windows command (an administrator PowerShell)
+	// instead of the one for Linux and Macs; ←→ switch.
+	win bool
+}
+
+// shown is the command on screen: Linux and Macs, or Windows.
+func (m *addRemote) shown() string {
+	if m.win && m.res.WindowsCommand != "" {
+		return m.res.WindowsCommand
+	}
+	return m.res.Command
+}
+
+// forLine is the choice between the two commands, as one row.
+func (m *addRemote) forLine() string {
+	opt := func(label string, on bool) string {
+		if on {
+			return styles.SelectedStyle().Render(" " + label + " ")
+		}
+		return styles.MutedStyle().Render(" " + label + " ")
+	}
+	return styles.FieldLabelStyle().Render("For ") + opt("Linux or a Mac", !m.win) + " " + opt("Windows", m.win) + styles.MutedStyle().Render("  tab")
+}
+
+// commandHints is the hint line under a command: copy, the switch to
+// the other system's command, close.
+func (m *addRemote) commandHints(copyHint string) string {
+	if m.res.WindowsCommand == "" {
+		return hints("c or click", copyHint, "esc", "close")
+	}
+	other := "Windows command"
+	if m.win {
+		other = "Linux/Mac command"
+	}
+	return hints("c or click", copyHint, "tab ←→", other, "esc", "close")
 }
 
 type accessOpenedMsg struct{ err error }
@@ -146,6 +182,9 @@ func (m *addRemote) update(a *App, msg tea.Msg) tea.Cmd {
 			return cmd
 		case msg.String() == "c":
 			return m.copy(a)
+		case m.host != "" && !m.access && m.res.WindowsCommand != "" && (key.Matches(msg, keyLeft, keyRight) || msg.String() == "tab" || msg.String() == "shift+tab"):
+			m.win, m.copied = !m.win, false
+			return nil
 		case (m.expired(a.now()) || (m.repair && m.err != nil)) && key.Matches(msg, keyEnter):
 			return m.start(a)
 		}
@@ -171,11 +210,11 @@ func (m *addRemote) start(a *App) tea.Cmd {
 }
 
 func (m *addRemote) copy(a *App) tea.Cmd {
-	if m.host == "" || m.res.Command == "" || m.expired(a.now()) {
+	if m.host == "" || m.shown() == "" || m.expired(a.now()) {
 		return nil
 	}
 	m.copied = true
-	return tea.Batch(copyToClipboardCmd(m.res.Command), audibleCueCmd())
+	return tea.Batch(copyToClipboardCmd(m.shown()), audibleCueCmd())
 }
 
 // hostsChanged follows the new machine as hosts reload (host_changed
@@ -283,7 +322,7 @@ func (m *addRemote) commandAt(a *App, x, y int) bool {
 		return false
 	}
 	line := strings.TrimSpace(strings.Trim(ansi.Strip(lines[i]), "│"))
-	return line != "" && strings.Contains(m.res.Command, line)
+	return line != "" && strings.Contains(m.shown(), line)
 }
 
 // view pads the current screen to the tallest of the three (name,
@@ -293,7 +332,8 @@ func (m *addRemote) view(a *App) string {
 	tallest := 0
 	for _, screen := range []func(*addRemote){
 		func(p *addRemote) { p.host, p.access = "", false },
-		func(p *addRemote) { p.host, p.access = "x", false },
+		func(p *addRemote) { p.host, p.access, p.win = "x", false, false },
+		func(p *addRemote) { p.host, p.access, p.win = "x", false, true },
 		func(p *addRemote) { p.host, p.access = "x", true },
 	} {
 		probe := *m
@@ -304,6 +344,8 @@ func (m *addRemote) view(a *App) string {
 		if probe.host != "" && (m.host == "" || m.res.Command == "") {
 			// pairing.go's: a 44-character pin, a 16-character code.
 			probe.res.Command = "curl -fsS --pinnedpubkey 'sha256//" + strings.Repeat("x", 44) + "' -k https://192.168.1.100:7458/i/" + strings.Repeat("x", 16) + " | sudo sh"
+			probe.res.WindowsCommand = "curl.exe -fsS --pinnedpubkey 'sha256//" + strings.Repeat("x", 44) + "' -k https://192.168.1.100:7458/w/" + strings.Repeat("x", 16) +
+				" -o $env:TEMP\\charm-bak.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\charm-bak.ps1"
 		}
 		tallest = max(tallest, lipgloss.Height(probe.render(a)))
 	}
@@ -322,7 +364,7 @@ func (m *addRemote) renderPadded(a *App, pad int) string {
 		b.WriteString(text("Another machine on this network. It runs its own backups on its own schedule; this Mac sets it up and shows how it's doing.") + "\n\n")
 		m.name.SetWidth(inner - formLabelWidth - 1)
 		b.Row(styles.HotkeyStyle().Render("Name"), m.name.View())
-		b.WriteString("\n" + muted("How charm-bak shows it: lowercase letters, digits and dashes. Linux and macOS for now; Windows is coming.") + "\n\n")
+		b.WriteString("\n" + muted("How charm-bak shows it: lowercase letters, digits and dashes. Linux, a Mac or Windows.") + "\n\n")
 		switch {
 		case m.asking:
 			b.WriteString(styles.HealthStyle(styles.Warn).Render(a.spinFrame()) + " " + styles.MutedStyle().Render("starting…") + "\n")
@@ -361,8 +403,15 @@ func (m *addRemote) renderPadded(a *App, pad int) string {
 	if m.repair {
 		return m.renderRepair(a, pad)
 	}
-	b.WriteString(text("Run this on "+m.host+". It installs charm-bak as a service and pairs it with this Mac (it uses sudo).") + "\n\n")
-	b.WriteString(styles.FileTitleStyle().Width(inner).Render(m.res.Command) + "\n\n")
+	if m.res.WindowsCommand != "" {
+		b.WriteString(m.forLine() + "\n\n")
+	}
+	if m.win {
+		b.WriteString(text("Run this on "+m.host+" in an administrator PowerShell (right-click Start, then Terminal (Admin)). It installs charm-bak as a service, with restic, and pairs it with this Mac.") + "\n\n")
+	} else {
+		b.WriteString(text("Run this on "+m.host+". It installs charm-bak as a service and pairs it with this Mac (it uses sudo).") + "\n\n")
+	}
+	b.WriteString(styles.FileTitleStyle().Width(inner).Render(m.shown()) + "\n\n")
 	b.WriteString(muted("If macOS asks whether charm-bak-daemon may accept incoming connections, allow it, or "+m.host+" can't reach this Mac.") + "\n\n")
 	expired := m.expired(a.now())
 	switch {
@@ -383,7 +432,7 @@ func (m *addRemote) renderPadded(a *App, pad int) string {
 	if expired {
 		b.WriteString(hints("enter", "new code", "esc", "close"))
 	} else {
-		b.WriteString(hints("c or click", copyHint, "esc", "close"))
+		b.WriteString(m.commandHints(copyHint))
 	}
 	return boxed(b.String(), inner)
 }
@@ -396,8 +445,15 @@ func (m *addRemote) renderRepair(a *App, pad int) string {
 	muted := func(s string) string { return styles.MutedStyle().Width(inner).Render(s) }
 	var b strings.Builder
 	b.WriteString(popupTitle("Repair "+m.host) + "\n\n")
-	b.WriteString(text("Run this on "+m.host+" (it uses sudo). It reinstalls charm-bak's daemon there and its service, as Add Remote did, and keeps everything else: sources, settings, run history, the repository and its keys, and the pairing.") + "\n\n")
-	cmd := m.res.Command
+	if m.res.WindowsCommand != "" {
+		b.WriteString(m.forLine() + "\n\n")
+	}
+	where := "(it uses sudo)"
+	if m.win {
+		where = "in an administrator PowerShell"
+	}
+	b.WriteString(text("Run this on "+m.host+" "+where+". It reinstalls charm-bak's daemon there and its service, as Add Remote did, and keeps everything else: sources, settings, run history, the repository and its keys, and the pairing.") + "\n\n")
+	cmd := m.shown()
 	if cmd == "" {
 		cmd = " "
 	}
@@ -425,7 +481,7 @@ func (m *addRemote) renderRepair(a *App, pad int) string {
 	if expired || m.err != nil {
 		b.WriteString(hints("enter", "new code", "esc", "close"))
 	} else {
-		b.WriteString(hints("c or click", copyHint, "esc", "close"))
+		b.WriteString(m.commandHints(copyHint))
 	}
 	return boxed(b.String(), inner)
 }

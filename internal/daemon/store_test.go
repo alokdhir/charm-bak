@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,8 +159,8 @@ func TestStoreKeepsOldDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	// As if this database predated that migration (the sixth) and the
-	// one after it.
-	if _, err := s.db.Exec("DROP TABLE remote_cache; PRAGMA user_version = 5"); err != nil {
+	// ones after it.
+	if _, err := s.db.Exec("DROP TABLE remote_cache; ALTER TABLE runs DROP COLUMN skipped; ALTER TABLE runs DROP COLUMN skipped_files; PRAGMA user_version = 5"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -179,5 +180,30 @@ func TestKeepFlagsUnlimited(t *testing.T) {
 	got := keepFlags(protocol.Retention{Daily: 30, Yearly: protocol.KeepUnlimited})
 	if !slices.Equal(got, []string{"--keep-daily", "30", "--keep-yearly", "unlimited"}) {
 		t.Errorf("flags %q", got)
+	}
+}
+
+// A run's skipped files are kept apart from history and come back with
+// the run.
+func TestStoreRunSkippedFiles(t *testing.T) {
+	s, err := OpenStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now()
+	run := protocol.Run{Job: "j-1", Kind: protocol.KindBackup, Started: now, Ended: now, Status: protocol.RunIncomplete, Skipped: 2}
+	if err := s.AddRun(run); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSkippedFiles("j-1", []string{"/a (x)", "/b (y)"}); err != nil {
+		t.Fatal(err)
+	}
+	got, files, err := s.Run("j-1")
+	if err != nil || got == nil || got.Skipped != 2 || strings.Join(files, ",") != "/a (x),/b (y)" {
+		t.Fatalf("%+v %v %v", got, files, err)
+	}
+	if got, _, err := s.Run("j-none"); got != nil || err != nil {
+		t.Errorf("missing run: %+v %v", got, err)
 	}
 }

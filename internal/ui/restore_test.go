@@ -116,3 +116,15 @@ func TestRestoreShowsFoldersWithSlash(t *testing.T) {
 		t.Error("a file's landing path ends in /")
 	}
 }
+
+// A remote's restore folder may be a Windows path; it's shown with
+// Windows separators and sent as typed.
+func TestRestoreToWindowsFolder(t *testing.T) {
+	f := &restoreForm{n: node{Entry: protocol.Entry{Name: "photos", Type: protocol.TypeDir}}}
+	if !isDrivePath(`C:\Restored`) || !isDrivePath("d:/x") || isDrivePath("C:") || isDrivePath("/data") {
+		t.Error("isDrivePath")
+	}
+	if got := f.landsAs("", `C:\Restored\`); got != `C:\Restored\photos\` {
+		t.Errorf("landsAs %q", got)
+	}
+}

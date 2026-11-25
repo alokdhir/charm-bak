@@ -171,10 +171,7 @@ func (f *setupFlow) howOptions() []howOption {
 	var opts []howOption
 	if m := f.aws.Manager; m != nil {
 		opts = append(opts, howOption{keyManager, "Make " + f.host + " a key",
-			"No sign-in. charm-bak's key above makes it: that key can only make keys for " + m.Bucket + ", and can't read any backups.", true})
-	}
-	if f.aws.Manager != nil {
-		return append(opts, howOption{keyTyped, "I have a key", "An access key and secret you made in the AWS console.", false})
+			"No sign-in. charm-bak's key above makes it: that key can only make keys for " + joinAnd(managerBuckets(m)) + ", and can't read any backups. Another bucket asks you to sign in once.", true})
 	}
 	return append(opts,
 		howOption{keySignIn, "Sign in to AWS",
@@ -217,7 +214,9 @@ func (f *setupFlow) input(key string) *textinput.Model {
 // needs typing.
 func (f *setupFlow) details() tea.Cmd {
 	if m := f.aws.Manager; f.keyFrom == keyManager && m != nil {
-		if in := f.input("bucket"); in != nil {
+		// A bucket filled in already (this Mac's, for a remote) stays
+		// when the manager serves it.
+		if in := f.input("bucket"); in != nil && !m.Serves(strings.TrimSpace(in.Value())) {
 			in.SetValue(m.Bucket)
 		}
 		if in := f.input("region"); in != nil && m.Region != "us-east-1" {
@@ -250,6 +249,20 @@ func (f *setupFlow) details() tea.Cmd {
 	}
 	f.step, f.err, f.note = sfDetails, nil, ""
 	return f.focus()
+}
+
+// signsIn reports whether Enter on the details signs in to AWS: picked,
+// or a bucket the key manager doesn't serve yet.
+func (f *setupFlow) signsIn() bool {
+	if f.keyFrom == keySignIn {
+		return true
+	}
+	m := f.aws.Manager
+	if f.keyFrom != keyManager || m == nil {
+		return false
+	}
+	in := f.input("bucket")
+	return in != nil && strings.TrimSpace(in.Value()) != "" && !m.Serves(strings.TrimSpace(in.Value()))
 }
 
 // optional: the field may stay empty. Signing in makes a bucket named
@@ -340,7 +353,7 @@ func (f *setupFlow) check(a *App) tea.Cmd {
 // makeKey asks this Mac's daemon for the machine's key: signing in to
 // AWS in the browser first, or with the key manager.
 func (f *setupFlow) makeKey(a *App) tea.Cmd {
-	p := protocol.AWSKeysParams{Host: f.host, SignIn: f.keyFrom == keySignIn}
+	p := protocol.AWSKeysParams{Host: f.host, SignIn: f.signsIn()}
 	if in := f.input("bucket"); in != nil {
 		p.Bucket = strings.TrimSpace(in.Value())
 	}
@@ -373,10 +386,19 @@ func (f *setupFlow) keysMade(a *App, res protocol.AWSKeysResult) tea.Cmd {
 			f.inputs[i].SetValue(v)
 		}
 	}
-	f.made = true
-	if f.keyFrom == keySignIn {
-		f.aws.Manager = &protocol.AWSManager{Bucket: res.Bucket, Region: res.Region}
+	if f.signsIn() {
+		m := protocol.AWSManager{Bucket: res.Bucket, Buckets: []string{res.Bucket}, Region: res.Region}
+		if old := f.aws.Manager; old != nil {
+			m.Account = old.Account
+			for _, b := range managerBuckets(old) {
+				if b != res.Bucket {
+					m.Buckets = append(m.Buckets, b)
+				}
+			}
+		}
+		f.aws.Manager = &m
 	}
+	f.made = true
 	return f.check(a)
 }
 
@@ -806,7 +828,7 @@ func (f *setupFlow) creates() (string, []string, string) {
 		bucket = "charm-bak-<account number>"
 	}
 	user := "IAM user charm-bak-" + f.host + ": reaches only " + bucket + "/" + f.host + "/"
-	if f.keyFrom == keyManager {
+	if !f.signsIn() {
 		return "Enter creates in your AWS account:", []string{user}, ""
 	}
 	// In the order the daemon makes them, so they tick off in order.
@@ -845,7 +867,7 @@ func (f *setupFlow) awsStep(e *protocol.AWSStepEvent) {
 	if e.For != f.host || f.busy == "" || f.made {
 		return
 	}
-	signIn := f.keyFrom == keySignIn
+	signIn := f.signsIn()
 	switch e.Step {
 	case protocol.AWSStepSignedIn:
 		f.busy = "signed in to AWS"
@@ -914,10 +936,10 @@ func (f *setupFlow) footer(a *App) string {
 	case sfHow:
 		b.WriteString(hints("↑↓", "choose", "enter", "next", "esc", "back"))
 	case sfDetails:
-		switch f.keyFrom {
-		case keySignIn:
+		switch {
+		case f.signsIn():
 			b.WriteString(hints("tab", "field", "enter", "sign in", "esc", "back"))
-		case keyManager:
+		case f.keyFrom == keyManager:
 			b.WriteString(hints("tab", "field", "enter", "make key", "esc", "back"))
 		default:
 			b.WriteString(hints("tab", "field", "enter", "check", "esc", "back"))
@@ -932,4 +954,23 @@ func (f *setupFlow) footer(a *App) string {
 		b.WriteString(hints("enter", "choose folders", "esc", "later"))
 	}
 	return b.String()
+}
+
+// joinAnd lists names as prose: "a", "a and b", "a, b and c".
+func joinAnd(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// managerBuckets is every bucket the key manager serves, the latest first.
+func managerBuckets(m *protocol.AWSManager) []string {
+	if len(m.Buckets) == 0 {
+		return []string{m.Bucket}
+	}
+	return m.Buckets
 }

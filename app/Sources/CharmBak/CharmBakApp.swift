@@ -64,6 +64,7 @@ final class AppModel {
         var configured = false
         var sources = 0
         var failing = 0
+        var skipped = 0
         var overdue = 0
     }
 
@@ -155,6 +156,7 @@ final class AppModel {
         if let sources = try? DaemonClient.call("sources", as: SourcesResult.self).sources {
             s.sources = sources.count
             s.failing = sources.filter { $0.health == "failed" }.count
+            s.skipped = sources.filter { $0.health == "skipped" }.count
             s.overdue = sources.filter { $0.health == "overdue" }.count
         }
         return s
@@ -210,6 +212,7 @@ final class AppModel {
         case .idle: break
         }
         if summary.failing > 0 { return (.failing, "\(n(summary.failing, "source")) failing") }
+        if summary.skipped > 0 { return (.attention, "\(n(summary.skipped, "source")) skipped files") }
         if summary.overdue > 0 { return (.attention, "\(n(summary.overdue, "source")) overdue") }
         if summary.sources == 0 { return (.off, "No sources yet") }
         return (.ok, summary.sources == 1 ? "Backups OK" : "All \(summary.sources) sources OK")

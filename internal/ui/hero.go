@@ -29,6 +29,39 @@ type heroCell struct {
 	// optional cells are dropped, last first, when the grid is too wide,
 	// before anything gets cut. Only cells the info popup also shows.
 	optional bool
+	// whole cells are never cut: what they say only reads in full (a
+	// source's last run, or its backup's progress).
+	whole bool
+	// under names a first-line cell this one sits beneath, on the second
+	// line, where there's room (Alok, 2026-11-25: a source's Retention,
+	// under Schedule).
+	under string
+}
+
+// secondLine is the hero's second line: the host's cells, then the
+// selection's under cells each beneath its first-line cell, empty cells
+// filling the columns between.
+func secondLine(repo, top, cells []heroCell) []heroCell {
+	line := slices.Clone(repo)
+	for _, c := range cells {
+		if c.under == "" {
+			continue
+		}
+		col := slices.IndexFunc(top, func(t heroCell) bool { return t.label == c.under })
+		if col < len(line) {
+			col = len(line) // its column is taken: the next free one
+		}
+		for len(line) < col {
+			line = append(line, heroCell{})
+		}
+		line = append(line, c)
+	}
+	return line
+}
+
+// firstLine is the selection's cells less those on the second line.
+func firstLine(cells []heroCell) []heroCell {
+	return slices.DeleteFunc(slices.Clone(cells), func(c heroCell) bool { return c.under != "" })
 }
 
 // heroStop is a focusable hero cell and where it sits: line 0 is the
@@ -62,15 +95,19 @@ func (a *App) heroSelectionCells(i int) []heroCell {
 		last := "never"
 		if s.LastRun != nil {
 			last = fmt.Sprintf("%s %s, took %s", mark, agoText(now, s.LastRun.Ended), took(s.LastRun))
-			if s.LastRun.Status != protocol.RunOK && s.LastRun.Error != "" {
-				last += ", " + s.LastRun.Error
+			// Why is the notification's, ^N's and the run details' to say.
+			switch s.LastRun.Status {
+			case protocol.RunFailed:
+				last = mark + " " + agoText(now, s.LastRun.Ended) + ", failed"
+			case protocol.RunIncomplete:
+				last = mark + " " + agoText(now, s.LastRun.Ended) + ", " + skippedText(s.LastRun.Skipped)
+			case protocol.RunCancelled:
+				last = mark + " " + agoText(now, s.LastRun.Ended) + ", cancelled"
 			}
 		}
+		// A backup in progress shows in the Daemon cell below; this one
+		// keeps saying how the last one went.
 		lastStyle := styles.HealthStyle(c)
-		if running, p := a.jobFor(s); running {
-			last, lastStyle = a.spin.View()+" backing up "+strings.TrimPrefix(progressText(p), "⟳"), styles.HealthStyle(styles.Spinning)
-			last = strings.TrimSpace(last)
-		}
 		next := "manual"
 		if s.Paused {
 			next = "paused"
@@ -85,9 +122,9 @@ func (a *App) heroSelectionCells(i int) []heroCell {
 		return []heroCell{
 			{label: "Source", value: seg{text: s.Name, style: styles.FileTitleStyle(), stop: "Info"}},
 			{label: "Size", value: seg{text: size, style: val}},
-			{label: "Last run", value: seg{text: last, style: lastStyle, stop: "Last run"}},
+			{label: "Last run", value: seg{text: last, style: lastStyle, stop: "Last run"}, whole: true},
 			{label: "Schedule", value: seg{text: next, style: val, stop: "Schedule"}},
-			{label: "Retention", value: seg{text: retentionReach(r, false), style: val, stop: "Retention"}},
+			{label: "Retention", value: seg{text: retentionReach(r, false), style: val, stop: "Retention"}, under: "Schedule"},
 		}
 	case a.col == colSnapshots && i < len(a.snaps):
 		s := a.snaps[i]
@@ -350,8 +387,10 @@ func withoutDropped(cells []heroCell, drop map[string]bool) []heroCell {
 
 func (a *App) heroGridDropping(drop map[string]bool) heroGrid {
 	var g heroGrid
-	g.rows[0] = withoutDropped(a.heroSelectionCells(a.focusedListPos()), drop)
-	g.rows[1] = a.heroRepoCells()
+	repo := a.heroRepoCells()
+	sel := withoutDropped(a.heroSelectionCells(a.focusedListPos()), drop)
+	g.rows[0] = firstLine(sel)
+	g.rows[1] = secondLine(repo, g.rows[0], sel)
 	// Size over every item of the same kind, so the grid holds still as
 	// the cursor moves. Items can differ in how many cells they have (a
 	// remote's host header has Link, this machine's doesn't), so the grid
@@ -360,7 +399,9 @@ func (a *App) heroGridDropping(drop map[string]bool) heroGrid {
 	measured := [][]heroCell{g.rows[1]}
 	for i := range a.focusedListLen() {
 		if a.sameHeroKind(i, pos) {
-			measured = append(measured, withoutDropped(a.heroSelectionCells(i), drop))
+			cells := withoutDropped(a.heroSelectionCells(i), drop)
+			top := firstLine(cells)
+			measured = append(measured, top, secondLine(repo, top, cells))
 		}
 	}
 	n := len(g.rows[0])
@@ -386,6 +427,13 @@ func (a *App) heroGridDropping(drop map[string]bool) heroGrid {
 		floor[i] = 8
 		if i < len(g.rows[1]) {
 			floor[i] = max(floor[i], lipgloss.Width(g.rows[1][i].value.text))
+		}
+	}
+	for _, cells := range measured {
+		for i, c := range cells {
+			if c.whole {
+				floor[i] = max(floor[i], g.valueW[i])
+			}
 		}
 	}
 	total := func() int {

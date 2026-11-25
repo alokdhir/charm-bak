@@ -123,6 +123,7 @@ public struct Run: Codable, Sendable {
     public var bytes: Int64
     public var snapshot: String
     public var error: String
+    public var skipped: Int64?
 }
 
 public enum AppState: String, Codable, Sendable {
@@ -250,6 +251,9 @@ public struct SnapshotMetaResult: Codable, Sendable {
 public struct SnapshotResult: Codable, Sendable { public var snapshot: Snapshot }
 public struct HistoryParams: Codable, Sendable { public var since: Date }
 public struct HistoryResult: Codable, Sendable { public var runs: [Run] }
+/// One run's details: every file an incomplete backup couldn't read.
+public struct RunParams: Codable, Sendable { public var job: String }
+public struct RunResult: Codable, Sendable { public var run: Run; public var skippedFiles: [String] }
 
 public struct RepositoryInfo: Codable, Sendable {
     public var location: String
@@ -282,7 +286,7 @@ public struct PairStartParams: Codable, Sendable {
     public var name: String
     public init(name: String) { self.name = name }
 }
-public struct PairStartResult: Codable, Sendable { public var command: String; public var expires: Date }
+public struct PairStartResult: Codable, Sendable { public var command: String; public var windowsCommand: String?; public var expires: Date }
 /// The command that reinstalls a paired remote's daemon there, keeping its state.
 public struct HostRepairParams: Codable, Sendable { public var name: String }
 /// Sent by a controller's daemon to a remote; clients never hold these.
@@ -343,6 +347,7 @@ public struct AWSStatusResult: Codable, Sendable {
 public struct AWSManager: Codable, Sendable {
     public var account: String
     public var bucket: String
+    public var buckets: [String]?
     public var region: String
 }
 /// A key that only reaches the host's folder in the bucket (aws_keys).
@@ -377,7 +382,7 @@ public enum Method: String, CaseIterable, Sendable {
     case sourceRemove = "source_remove"
     case snapshotSet = "snapshot_set"
     case snapshotMeta = "snapshot_meta"
-    case pause, resume, history, subscribe, repository
+    case pause, resume, history, run, subscribe, repository
     case defaultsSet = "defaults_set"
     case hosts
     case pairStart = "pair_start"
@@ -415,6 +420,7 @@ public enum Method: String, CaseIterable, Sendable {
         case .snapshotMeta: (SnapshotMetaParams.self, SnapshotMetaResult.self)
         case .pause, .resume, .subscribe: (nil, Empty.self)
         case .history: (HistoryParams.self, HistoryResult.self)
+        case .run: (RunParams.self, RunResult.self)
         case .repository: (nil, RepositoryResult.self)
         case .defaultsSet: (DefaultsSetParams.self, DefaultsResult.self)
         case .hosts: (nil, HostsResult.self)

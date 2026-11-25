@@ -286,6 +286,8 @@ func sourceState(s protocol.Source) (c color.Color, mark string) {
 	switch s.Health {
 	case protocol.HealthFailed:
 		return styles.Fail, "✗"
+	case protocol.HealthSkipped:
+		return styles.Warn, "⚠"
 	case protocol.HealthOverdue, protocol.HealthNever:
 		return styles.Warn, "!"
 	default:

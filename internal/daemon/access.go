@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"charm-bak/internal/protocol"
 )
@@ -51,15 +50,11 @@ func (c *Core) openAccessSettings() (protocol.Empty, error) {
 	if os.Geteuid() == 0 {
 		// A launchd daemon has no GUI session: run open as the person
 		// logged in at the screen, in theirs.
-		var st *syscall.Stat_t
-		fi, err := os.Stat("/dev/console")
-		if err == nil {
-			st, _ = fi.Sys().(*syscall.Stat_t)
-		}
-		if st == nil || st.Uid == 0 {
+		id, ok := consoleUID()
+		if !ok {
 			return protocol.Empty{}, perr(protocol.ErrBadRequest, "No one is logged in at %s's screen. Log in there, then try again.", c.Name)
 		}
-		uid := strconv.FormatUint(uint64(st.Uid), 10)
+		uid := strconv.FormatUint(uint64(id), 10)
 		open = func(args ...string) error {
 			return exec.Command("launchctl", append([]string{"asuser", uid, "sudo", "-u", "#" + uid, "open"}, args...)...).Run()
 		}

@@ -367,3 +367,32 @@ func TestSourcesSayLoadingBeforeTheFirstReply(t *testing.T) {
 		t.Error("after an empty reply: want none yet")
 	}
 }
+
+// Add Remote offers the Windows command too: ←→ switch, c copies the one
+// shown, and the popup keeps its size either way.
+func TestAddRemoteWindowsCommand(t *testing.T) {
+	a := newTestApp(t, 120, 30)
+	press(a, "r")
+	typeText(a, "gamer")
+	press(a, "enter")
+	m, ok := a.modal.(*addRemote)
+	if !ok || m.res.WindowsCommand == "" {
+		t.Fatalf("modal %T, windows command %q", a.modal, m.res.WindowsCommand)
+	}
+	linux := m.view(a)
+	if !strings.Contains(m.shown(), "| sudo sh") {
+		t.Errorf("starts on %q", m.shown())
+	}
+	press(a, "right")
+	if !m.win || !strings.Contains(m.shown(), "powershell") {
+		t.Fatalf("→ shows %q", m.shown())
+	}
+	win := m.view(a)
+	if lipgloss.Height(win) != lipgloss.Height(linux) || !strings.Contains(win, "administrator PowerShell") {
+		t.Errorf("heights %d and %d", lipgloss.Height(linux), lipgloss.Height(win))
+	}
+	press(a, "c")
+	if !m.copied {
+		t.Error("c didn't copy")
+	}
+}

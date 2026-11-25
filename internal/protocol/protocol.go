@@ -21,6 +21,11 @@ const Version = 1
 // (the usual remote), else the user's runtime directory.
 func SocketPath() string {
 	home, _ := os.UserHomeDir()
+	if runtime.GOOS == "windows" {
+		// A service's state folder, locked to administrators and SYSTEM
+		// by the installer (Windows has AF_UNIX sockets since 10 1803).
+		return filepath.Join(os.Getenv("ProgramData"), "charm-bak", "daemon.sock")
+	}
 	if runtime.GOOS != "linux" {
 		return filepath.Join(home, "Library", "Application Support", "charm-bak", "app.sock")
 	}
@@ -113,6 +118,9 @@ const (
 	HealthOK      = "ok"
 	HealthOverdue = "overdue"
 	HealthFailed  = "failed"
+	// HealthSkipped: the last backup made a snapshot but couldn't read
+	// some files (a warning, not a failure).
+	HealthSkipped = "skipped"
 	HealthNever   = "never"
 )
 
@@ -220,6 +228,8 @@ type Run struct {
 	Bytes    int64  `json:"bytes"`
 	Snapshot string `json:"snapshot"`
 	Error    string `json:"error"`
+	// Skipped is how many files an incomplete backup couldn't read.
+	Skipped int64 `json:"skipped,omitempty"`
 }
 
 // App states.
@@ -275,6 +285,7 @@ const (
 	MethodAccessSettings = "access_settings"
 	MethodAWSStatus      = "aws_status"
 	MethodAWSKeys        = "aws_keys"
+	MethodRun            = "run"
 )
 
 // UntaggedSource is the pseudo-source for snapshots without a charm-bak tag.
@@ -631,11 +642,27 @@ type AWSStatusResult struct {
 
 // AWSManager is the controller's key manager: an IAM user that can only
 // make users at path /charm-bak/ whose permissions boundary limits them
-// to Bucket. Its key stays in the controller's Keychain.
+// to one of Buckets (every bucket a sign-in set it up for; Bucket is the
+// latest, the one offered first). Its key stays in the controller's
+// Keychain.
 type AWSManager struct {
-	Account string `json:"account"`
-	Bucket  string `json:"bucket"`
-	Region  string `json:"region"`
+	Account string   `json:"account"`
+	Bucket  string   `json:"bucket"`
+	Buckets []string `json:"buckets,omitempty"`
+	Region  string   `json:"region"`
+}
+
+// Serves reports whether the key manager can make keys for bucket.
+func (m AWSManager) Serves(bucket string) bool {
+	if bucket == m.Bucket {
+		return true
+	}
+	for _, b := range m.Buckets {
+		if b == bucket {
+			return true
+		}
+	}
+	return false
 }
 
 // AWSKeysParams asks the controller for a key that can only reach
@@ -703,8 +730,11 @@ type HostRepairParams struct {
 // PairStartResult is what to run on the remote: Command, as root, before
 // Expires. The code in it works once.
 type PairStartResult struct {
-	Command string    `json:"command"`
-	Expires time.Time `json:"expires"`
+	Command string `json:"command"`
+	// WindowsCommand is the same for a Windows remote, pasted in an
+	// administrator PowerShell.
+	WindowsCommand string    `json:"windows_command,omitempty"`
+	Expires        time.Time `json:"expires"`
 }
 
 type HostsResult struct {
@@ -733,6 +763,18 @@ type HistoryParams struct {
 
 type HistoryResult struct {
 	Runs []Run `json:"runs"`
+}
+
+// RunParams names one run from history, for its details.
+type RunParams struct {
+	Job string `json:"job"`
+}
+
+// RunResult is a run with what history leaves out: every file an
+// incomplete backup couldn't read, with the reason (up to 1000).
+type RunResult struct {
+	Run          Run      `json:"run"`
+	SkippedFiles []string `json:"skipped_files"`
 }
 
 // Empty is the result of methods that return nothing.

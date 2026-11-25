@@ -421,3 +421,32 @@ func TestResticRewrite(t *testing.T) {
 		t.Errorf("added %d %v", n, err)
 	}
 }
+
+// A file restic can't open makes the backup incomplete, and the result
+// names it with the system's reason.
+func TestResticBackupUnread(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads everything")
+	}
+	fx := newResticFixture(t)
+	ctx := context.Background()
+	if err := fx.engine.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(fx.data, "locked.txt")
+	if err := os.WriteFile(locked, []byte("no"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o644) })
+	res, err := fx.engine.Backup(ctx, BackupSpec{Tag: "src:test", Paths: []string{fx.data}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := locked + " (permission denied)"
+	if !res.Incomplete || res.UnreadCount != 1 || len(res.Unread) != 1 || res.Unread[0] != want {
+		t.Fatalf("result %+v, want %q", res, want)
+	}
+	if got := unreadSummary(res); got != "Couldn't read 1 file: "+want+"." {
+		t.Errorf("summary %q", got)
+	}
+}

@@ -10,6 +10,7 @@
     "id": 9,
     "result": {
       "command": "curl -fsS --pinnedpubkey 'sha256//47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' -k https://192.168.1.2:7458/i/MFRGGZDFMZTWQ2LK | sudo sh",
+      "windows_command": "curl.exe -fsS --pinnedpubkey 'sha256//47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' -k https://192.168.1.2:7458/w/MFRGGZDFMZTWQ2LK -o $env:TEMP\\charm-bak.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\charm-bak.ps1",
       "expires": "2026-11-23T18:20:00-05:00"
     }
   }

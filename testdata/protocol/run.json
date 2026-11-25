@@ -1,0 +1,34 @@
+{
+  "request": {
+    "id": 1,
+    "method": "run",
+    "params": {
+      "job": "j-41"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "run": {
+        "job": "j-41",
+        "kind": "backup",
+        "source": "3f9a",
+        "started": "2026-11-19T12:00:00-05:00",
+        "ended": "2026-11-19T12:00:42-05:00",
+        "status": "incomplete",
+        "files_new": 3,
+        "files_changed": 12,
+        "bytes_added": 52311,
+        "files": 1832,
+        "bytes": 41234567,
+        "snapshot": "2438fde6f0ab7a4f56bb01e14c622cf15b71a19b189563de9dbf0c30222ffbc4",
+        "error": "Couldn't read 2 files: /home/a/locked.db (permission denied); /home/a/pipe (unsupported file type \"irregular\").",
+        "skipped": 2
+      },
+      "skipped_files": [
+        "/home/a/locked.db (permission denied)",
+        "/home/a/pipe (unsupported file type \"irregular\")"
+      ]
+    }
+  }
+}

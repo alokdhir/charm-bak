@@ -110,6 +110,8 @@ func (c *Core) serveInstall(name string, repair bool) (protocol.PairStartResult,
 	mux.HandleFunc("GET /i/{code}", c.pairScript(addr))
 	mux.HandleFunc("GET /d/{code}/{arch}", c.pairBinary)
 	mux.HandleFunc("GET /m/{code}/{arch}", c.pairMacBundle)
+	mux.HandleFunc("GET /w/{code}", c.pairWindowsScript(addr))
+	mux.HandleFunc("GET /x/{code}/{arch}", c.pairWindowsBinary)
 	mux.HandleFunc("POST /p/{code}", c.pairComplete)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	c.pair.srv, c.pair.code, c.pair.name, c.pair.repair, c.pair.expires = srv, code, name, repair, c.now().Add(pairTTL)
@@ -123,7 +125,7 @@ func (c *Core) serveInstall(name string, repair bool) (protocol.PairStartResult,
 		what = "repair"
 	}
 	logf("%s started for %s on %s, code expires %s", what, name, hostport, c.pair.expires.Local().Format("15:04"))
-	return protocol.PairStartResult{Command: cmd, Expires: c.pair.expires}, nil
+	return protocol.PairStartResult{Command: cmd, WindowsCommand: windowsCommand(c.identity.Pin, hostport, code), Expires: c.pair.expires}, nil
 }
 
 func (c *Core) pairPort() int {

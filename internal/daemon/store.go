@@ -124,6 +124,10 @@ var migrations = []string{
 	// (remoteread.go): its repository, its sources and its snapshots'
 	// pins and notes, so its backups can be read while it's off.
 	`CREATE TABLE remote_cache (host TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (host, key));`,
+	// How many files an incomplete backup couldn't read.
+	`ALTER TABLE runs ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0;`,
+	// Which files, with the reason, as JSON (run details only).
+	`ALTER TABLE runs ADD COLUMN skipped_files TEXT NOT NULL DEFAULT '';`,
 }
 
 // OpenStore opens (creating and migrating) the database at path;
@@ -367,15 +371,15 @@ func (s *Store) Effective(src StoredSource) (Effective, error) {
 
 // Runs.
 
-const runCols = "job, kind, source, started, ended, status, files_new, files_changed, bytes_added, snapshot, error, files, bytes"
+const runCols = "job, kind, source, started, ended, status, files_new, files_changed, bytes_added, snapshot, error, files, bytes, skipped"
 
 func (s *Store) AddRun(r protocol.Run) error {
 	var source any
 	if r.Source != nil {
 		source = *r.Source
 	}
-	_, err := s.db.Exec("INSERT OR REPLACE INTO runs ("+runCols+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		r.Job, r.Kind, source, toDB(r.Started), toDB(r.Ended), r.Status, r.FilesNew, r.FilesChanged, r.BytesAdded, r.Snapshot, r.Error, r.Files, r.Bytes)
+	_, err := s.db.Exec("INSERT OR REPLACE INTO runs ("+runCols+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		r.Job, r.Kind, source, toDB(r.Started), toDB(r.Ended), r.Status, r.FilesNew, r.FilesChanged, r.BytesAdded, r.Snapshot, r.Error, r.Files, r.Bytes, r.Skipped)
 	return err
 }
 
@@ -390,7 +394,7 @@ func (s *Store) queryRuns(q string, args ...any) ([]protocol.Run, error) {
 		var r protocol.Run
 		var source sql.NullString
 		var started, ended float64
-		if err := rows.Scan(&r.Job, &r.Kind, &source, &started, &ended, &r.Status, &r.FilesNew, &r.FilesChanged, &r.BytesAdded, &r.Snapshot, &r.Error, &r.Files, &r.Bytes); err != nil {
+		if err := rows.Scan(&r.Job, &r.Kind, &source, &started, &ended, &r.Status, &r.FilesNew, &r.FilesChanged, &r.BytesAdded, &r.Snapshot, &r.Error, &r.Files, &r.Bytes, &r.Skipped); err != nil {
 			return nil, err
 		}
 		if source.Valid {
@@ -403,6 +407,35 @@ func (s *Store) queryRuns(q string, args ...any) ([]protocol.Run, error) {
 }
 
 // Runs that ended at or after since, oldest first.
+// SetSkippedFiles keeps an incomplete backup's unreadable files.
+func (s *Store) SetSkippedFiles(job string, files []string) error {
+	b, err := json.Marshal(files)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec("UPDATE runs SET skipped_files = ? WHERE job = ?", string(b), job)
+	return err
+}
+
+// Run is one run and its unreadable files; nil when there's no such job.
+func (s *Store) Run(job string) (*protocol.Run, []string, error) {
+	runs, err := s.queryRuns("WHERE job = ?", job)
+	if err != nil || len(runs) == 0 {
+		return nil, nil, err
+	}
+	var raw string
+	if err := s.db.QueryRow("SELECT skipped_files FROM runs WHERE job = ?", job).Scan(&raw); err != nil {
+		return nil, nil, err
+	}
+	files := []string{}
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &files); err != nil {
+			return nil, nil, err
+		}
+	}
+	return &runs[0], files, nil
+}
+
 func (s *Store) Runs(since time.Time) ([]protocol.Run, error) {
 	return s.queryRuns("WHERE ended >= ? ORDER BY ended", toDB(since))
 }

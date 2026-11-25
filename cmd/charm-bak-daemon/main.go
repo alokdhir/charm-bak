@@ -23,13 +23,26 @@ import (
 	"charm-bak/internal/daemon"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 // selfPath is this executable's path, read at startup: after an update
 // renames a new file over it, Linux reports the running one as deleted.
 var selfPath string
 
+// stopFn stops a running daemon (run sets it); a Windows service's Stop
+// calls it.
+var stopFn atomic.Pointer[context.CancelFunc]
+
+func stopDaemon() {
+	if f := stopFn.Load(); f != nil {
+		(*f)()
+	}
+}
+
 func main() {
+	if runAsService() {
+		return
+	}
 	if restart := run(); restart {
 		// self_update put a new executable in place: become it, same
 		// arguments, same process (so whatever supervises this one sees
@@ -170,6 +183,7 @@ func run() (restart bool) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	stopFn.Store(&stop)
 	var listenErr atomic.Pointer[error]
 	if *withParent {
 		go func() {
@@ -190,6 +204,7 @@ func run() (restart bool) {
 				// app; remotes take updates from their controller
 				// (self_update).
 				core.UpdatePath, selfPath = exe, exe
+				daemon.CleanUpReplaced(exe) // Windows: the one an update moved aside
 				core.UpdateBundle = daemon.BundleOf(exe)
 				core.Restart = func() { restart = true; stop() }
 				if exe == installedExe() {
@@ -277,6 +292,9 @@ const (
 )
 
 func installedExe() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(winInstallDir(), "charm-bak-daemon.exe")
+	}
 	if runtime.GOOS == "darwin" {
 		return macInstallDir + "/charm-bak.app/Contents/MacOS/charm-bak-daemon"
 	}
@@ -292,6 +310,10 @@ func removeInstall(stateDir string) {
 		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
 			log.Printf("%v: %v %s", args, err, out)
 		}
+	}
+	if runtime.GOOS == "windows" {
+		removeWindowsInstall(stateDir)
+		return
 	}
 	if runtime.GOOS == "darwin" {
 		os.Remove(macPlist)
@@ -309,6 +331,40 @@ func removeInstall(stateDir string) {
 		os.RemoveAll(stateDir)
 	}
 	log.Printf("uninstalled")
+}
+
+// winInstallDir is where the Windows installer puts the daemon and
+// restic.exe.
+func winInstallDir() string {
+	pf := os.Getenv("ProgramFiles")
+	if pf == "" {
+		pf = `C:\Program Files`
+	}
+	return filepath.Join(pf, "charm-bak")
+}
+
+// removeWindowsInstall undoes the Windows installer: the firewall rule,
+// the service (deleted once this process exits), and, after it has
+// exited (a running executable can't be deleted), the install and state
+// folders.
+func removeWindowsInstall(stateDir string) {
+	run := func(args ...string) {
+		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+			log.Printf("%v: %v %s", args, err, out)
+		}
+	}
+	run("netsh", "advfirewall", "firewall", "delete", "rule", "name=charm-bak")
+	run("sc.exe", "delete", "charm-bak")
+	dirs := []string{winInstallDir()}
+	if filepath.Base(stateDir) == "charm-bak" { // never anything broader
+		dirs = append(dirs, stateDir)
+	}
+	script := "Start-Sleep -Seconds 5"
+	for _, d := range dirs {
+		script += "; Remove-Item -LiteralPath '" + strings.ReplaceAll(d, "'", "''") + "' -Recurse -Force -ErrorAction SilentlyContinue"
+	}
+	log.Printf("uninstalled")
+	exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script).Start()
 }
 
 func fail(err error) {

@@ -81,6 +81,8 @@ type Repo interface {
 	Cancel(ctx context.Context, job string) error
 	// History is the runs that ended since since, oldest first.
 	History(ctx context.Context, since time.Time) ([]protocol.Run, error)
+	// RunDetail is one run and the files it couldn't read.
+	RunDetail(ctx context.Context, job string) (protocol.RunResult, error)
 
 	// Events delivers the app's events until ctx ends or the app goes
 	// away; the channel closes then.
