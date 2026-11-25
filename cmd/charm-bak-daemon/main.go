@@ -213,6 +213,9 @@ func run() (restart bool) {
 			}
 		}
 	}
+	// A restic of its own when none is installed (or it's too old).
+	daemon.SetManagedResticDir(filepath.Join(filepath.Dir(*db), "restic"))
+	go daemon.EnsureRestic(ctx)
 	// A copy of the database, backed up daily into the repository.
 	core.StateCopy = filepath.Join(filepath.Dir(*db), "charm-bak.db.bak")
 	// Snapshot listings kept between runs: a cache database of its own.

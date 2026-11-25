@@ -68,6 +68,26 @@ func FindRestic() string {
 			}
 		}
 	}
+	// An installed restic that's recent enough, else the daemon's own
+	// (resticmanaged.go), else an old one rather than none.
+	sys := systemRestic()
+	if sys != "" {
+		if v, ok := resticVersion(sys); ok && versionAtLeast(v, resticMin) {
+			return sys
+		}
+	}
+	if m := managedRestic(); m != "" {
+		return m
+	}
+	if sys != "" {
+		return sys
+	}
+	return "restic"
+}
+
+// systemRestic is an installed restic: Homebrew's, the usual folders, or
+// on PATH; "" if there's none.
+func systemRestic() string {
 	for _, p := range []string{"/opt/homebrew/bin/restic", "/usr/local/bin/restic", "/usr/bin/restic"} {
 		if fi, err := os.Stat(p); err == nil && fi.Mode()&0o111 != 0 {
 			return p
@@ -76,7 +96,7 @@ func FindRestic() string {
 	if p, err := exec.LookPath("restic"); err == nil {
 		return p
 	}
-	return "restic"
+	return ""
 }
 
 func (r *ResticEngine) env() ([]string, error) {

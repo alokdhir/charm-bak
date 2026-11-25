@@ -6,6 +6,11 @@
 #   app/build.sh            build, sign, install, relaunch if it was running
 #   SIGN_ID="Developer ID Application: …" app/build.sh   sign with another identity
 #   SIGN_ID=- app/build.sh  ad-hoc signature (for comparison only)
+#   RELEASE=1 SIGN_ID="Developer ID Application" app/build.sh
+#                           a release: universal (Apple silicon and Intel),
+#                           secure timestamps for notarization, written to
+#                           dist/charm-bak.app instead of installed
+#                           (scripts/release.sh notarizes and packages it)
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -15,8 +20,17 @@ DEST="${DEST:-$HOME/Applications/charm-bak.app}"
 BUILD="$(date +%Y%m%d.%H%M%S)"
 VERSION="0.5.0"
 
-swift build -c release --quiet
-BIN="$(swift build -c release --show-bin-path)/CharmBak"
+RELEASE="${RELEASE:-}"
+if [ -n "$RELEASE" ]; then
+    # Notarization needs a secure timestamp on every signature.
+    TIMESTAMP=(--timestamp)
+    SWIFT_ARCH=(--arch arm64 --arch x86_64)
+else
+    TIMESTAMP=(--timestamp=none)
+    SWIFT_ARCH=()
+fi
+swift build -c release --quiet ${SWIFT_ARCH[@]+"${SWIFT_ARCH[@]}"}
+BIN="$(swift build -c release ${SWIFT_ARCH[@]+"${SWIFT_ARCH[@]}"} --show-bin-path)/CharmBak"
 # Everything installed is stripped (Alok, 2026-11-22): Go builds drop the
 # symbol table and DWARF (-s -w; panics still name functions, from
 # pclntab), the Swift app its local symbols. Debugging uses the dev tree.
@@ -25,15 +39,28 @@ BIN="$(swift build -c release --show-bin-path)/CharmBak"
 # every remote (self_update compares hashes).
 GOBUILD=(go build -trimpath -buildvcs=false -ldflags "-s -w")
 
+# gomac builds a Mac binary of package $2 to $1: this Mac's architecture,
+# or for a release both, joined into one universal file.
+gomac() {
+    if [ -z "$RELEASE" ]; then
+        (cd .. && CGO_ENABLED=0 "${GOBUILD[@]}" -o "$1" "$2")
+        return
+    fi
+    (cd .. && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 "${GOBUILD[@]}" -o "$1.arm64" "$2")
+    (cd .. && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 "${GOBUILD[@]}" -o "$1.amd64" "$2")
+    lipo -create -output "$1" "$1.arm64" "$1.amd64"
+    rm "$1.arm64" "$1.amd64"
+}
+
 STAGE="$(mktemp -d)/charm-bak.app"
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
 cp "$BIN" "$STAGE/Contents/MacOS/charm-bak"
 strip -x "$STAGE/Contents/MacOS/charm-bak"
 # The daemon, built for this Mac, lives beside the app's executable; the
 # app starts it as a child so it inherits the app's Full Disk Access.
-(cd .. && CGO_ENABLED=0 "${GOBUILD[@]}" -o "$STAGE/Contents/MacOS/charm-bak-daemon" ./cmd/charm-bak-daemon)
+gomac "$STAGE/Contents/MacOS/charm-bak-daemon" ./cmd/charm-bak-daemon
 # The TUI too, so the menu's "Open TUI" always runs the matching version.
-(cd .. && CGO_ENABLED=0 "${GOBUILD[@]}" -o "$STAGE/Contents/MacOS/charm-bak-tui" .)
+gomac "$STAGE/Contents/MacOS/charm-bak-tui" .
 # Linux daemons, which pairing hands to remotes (Contents/Resources is
 # data to codesign, not code it checks).
 for arch in amd64 arm64; do
@@ -72,7 +99,7 @@ for arch in amd64 arm64; do
 </dict>
 </plist>
 RPLIST
-    codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" --identifier "$BUNDLE_ID.remote" "$RB"
+    codesign --force --options runtime "${TIMESTAMP[@]}" --sign "$SIGN_ID" --identifier "$BUNDLE_ID.remote" "$RB"
 done
 cat > "$STAGE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -94,9 +121,18 @@ cat > "$STAGE/Contents/Info.plist" <<PLIST
 PLIST
 
 # Nested code first, then the bundle (codesign --deep is discouraged).
-codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" --identifier "$BUNDLE_ID.daemon" "$STAGE/Contents/MacOS/charm-bak-daemon"
-codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" --identifier "$BUNDLE_ID.tui" "$STAGE/Contents/MacOS/charm-bak-tui"
-codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" --identifier "$BUNDLE_ID" "$STAGE"
+codesign --force --options runtime "${TIMESTAMP[@]}" --sign "$SIGN_ID" --identifier "$BUNDLE_ID.daemon" "$STAGE/Contents/MacOS/charm-bak-daemon"
+codesign --force --options runtime "${TIMESTAMP[@]}" --sign "$SIGN_ID" --identifier "$BUNDLE_ID.tui" "$STAGE/Contents/MacOS/charm-bak-tui"
+codesign --force --options runtime "${TIMESTAMP[@]}" --sign "$SIGN_ID" --identifier "$BUNDLE_ID" "$STAGE"
+
+if [ -n "$RELEASE" ]; then
+    OUT="$(cd .. && pwd)/dist"
+    mkdir -p "$OUT"
+    rm -rf "$OUT/charm-bak.app"
+    mv "$STAGE" "$OUT/charm-bak.app"
+    echo "built $OUT/charm-bak.app ($VERSION build $BUILD, universal, signed: $SIGN_ID)"
+    exit 0
+fi
 
 # Match the app by its bundle path: the TUI on PATH is also "charm-bak".
 APP_EXE='charm-bak\.app/Contents/MacOS/charm-bak$'

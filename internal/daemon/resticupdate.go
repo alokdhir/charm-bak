@@ -26,7 +26,11 @@ var resticUpdating atomic.Bool
 // resticSelfUpdateIfDue starts the weekly update in the background when
 // it's due; the caller has checked that the queue is empty.
 func (c *Core) resticSelfUpdateIfDue(now time.Time) {
-	if !isWindows || resticUpdating.Load() {
+	// Windows' copy beside the daemon, or a Mac or Linux machine's own
+	// (resticmanaged.go); a restic installed some other way is updated
+	// that way.
+	bin := FindRestic()
+	if resticUpdating.Load() || !(isWindows || (bin != "" && bin == managedRestic())) {
 		return
 	}
 	var last time.Time
@@ -36,10 +40,6 @@ func (c *Core) resticSelfUpdateIfDue(now time.Time) {
 	// Recorded before trying: a failure waits a week too, rather than
 	// hitting GitHub every minute.
 	if err := c.store.SetSetting(resticUpdateSetting, now); err != nil {
-		return
-	}
-	bin := FindRestic()
-	if bin == "" {
 		return
 	}
 	resticUpdating.Store(true)

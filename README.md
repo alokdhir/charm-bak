@@ -106,14 +106,25 @@ Secrets stay on the machine that uses them: in the Keychain on a Mac, in files o
 
 ## Install
 
-There are no prebuilt releases yet; build from source.
+Download the latest `charm-bak-<version>.zip` from [Releases](https://github.com/alokdhir/charm-bak/releases), unzip it, move `charm-bak.app` to Applications and open it. It's signed with a Developer ID and notarized by Apple, and runs on Apple silicon and Intel Macs with macOS 14 or later.
 
-Requirements:
+restic: if you have restic 0.18 or later installed (`brew install restic`), charm-bak uses it, and you keep updating it as usual. If not, charm-bak downloads restic's own release for itself, checked against the checksums restic signs, and keeps that copy up to date.
 
-- macOS 14 or later
-- [restic](https://restic.net) 0.19 or later (`brew install restic`)
-- Go 1.26 and Xcode's command line tools
-- a code-signing identity (a free Apple Development certificate is enough)
+Then:
+
+1. Grant **Full Disk Access** to charm-bak in System Settings › Privacy & Security, so it can read Documents, Mail and the like. The menu warns while it's missing.
+2. Choose **Open TUI** from the menu bar icon. Setup opens by itself.
+3. Tick the folders to back up.
+
+To run the TUI as `charm-bak` from any terminal, link it onto your PATH:
+
+```sh
+ln -s /Applications/charm-bak.app/Contents/MacOS/charm-bak-tui /usr/local/bin/charm-bak
+```
+
+### Building from source
+
+Requirements: macOS 14 or later, Go 1.26 and Xcode's command line tools, and a code-signing identity (a free Apple Development certificate is enough).
 
 ```sh
 git clone https://github.com/alokdhir/charm-bak.git
@@ -122,13 +133,7 @@ app/build.sh
 open ~/Applications/charm-bak.app
 ```
 
-`app/build.sh` builds the app, the daemon and the TUI, signs them, installs `~/Applications/charm-bak.app`, and links `charm-bak` onto your PATH if `/usr/local/bin` is writable. Set `SIGN_ID` to choose the identity. Keep the same identity across builds: macOS ties Full Disk Access to it.
-
-Then:
-
-1. Grant **Full Disk Access** to charm-bak in System Settings › Privacy & Security, so it can read Documents, Mail and the like. The menu warns while it's missing.
-2. Choose **Open TUI** from the menu bar icon, or run `charm-bak`. Setup opens by itself.
-3. Tick the folders to back up.
+`app/build.sh` builds the app, the daemon and the TUI, signs them, installs `~/Applications/charm-bak.app`, and links `charm-bak` onto your PATH if `/usr/local/bin` is writable. Set `SIGN_ID` to choose the identity. Keep the same identity across builds: macOS ties Full Disk Access to it. `scripts/release.sh` makes a release: universal, signed with a Developer ID, notarized and zipped.
 
 To try the interface without setting anything up, `go run . --fake` runs the TUI on fixture data.
 
@@ -184,9 +189,7 @@ The Mac finds a remote at the address it had when paired. If that changes, `e` o
 ## What's rough
 
 - **Mounting snapshots as a folder isn't in the TUI.** restic can do it, and you can run it by hand against this Mac's repository; see [Mounting by hand](#mounting-by-hand).
-- **No prebuilt, notarized release.** You build and sign it yourself for now.
 - **Linux and Windows desktops** have no UI of their own; they are remotes of a Mac.
-- **Windows remotes are new.** Tested end to end on a Windows 11 ARM64 machine: install, pairing, setup, backups with shadow copies, browsing and Changes from the Mac, restoring onto Windows, updates and removal. restic publishes no ARM64 Windows build yet, so ARM machines run the x64 one under emulation. The service runs its own copy of restic, kept beside the daemon, which nothing else updates, so charm-bak runs `restic self-update` there once a week. Windows' App Execution Aliases (the stubs in `AppData\Local\Microsoft\WindowsApps`) can't be stored by restic and are passed over quietly.
 
 ## Mounting by hand
 

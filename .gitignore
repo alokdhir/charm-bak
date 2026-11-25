@@ -1,3 +1,4 @@
 .trekker/
 /charm-bak
 /app/.build/
+dist/
