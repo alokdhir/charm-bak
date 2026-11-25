@@ -186,7 +186,7 @@ The Mac finds a remote at the address it had when paired. If that changes, `e` o
 - **Mounting snapshots as a folder isn't in the TUI.** restic can do it, and you can run it by hand against this Mac's repository; see [Mounting by hand](#mounting-by-hand).
 - **No prebuilt, notarized release.** You build and sign it yourself for now.
 - **Linux and Windows desktops** have no UI of their own; they are remotes of a Mac.
-- **Windows remotes are new.** Tested end to end on a Windows 11 ARM64 machine: install, pairing, setup, backups with shadow copies, updates and removal. restic publishes no ARM64 Windows build yet, so ARM machines run the x64 one under emulation. Since Windows has no package manager that keeps restic current for a service, charm-bak runs `restic self-update` there once a week. Windows' App Execution Aliases (the stubs in `AppData\Local\Microsoft\WindowsApps`) can't be stored by restic and are passed over quietly.
+- **Windows remotes are new.** Tested end to end on a Windows 11 ARM64 machine: install, pairing, setup, backups with shadow copies, browsing and Changes from the Mac, restoring onto Windows, updates and removal. restic publishes no ARM64 Windows build yet, so ARM machines run the x64 one under emulation. The service runs its own copy of restic, kept beside the daemon, which nothing else updates, so charm-bak runs `restic self-update` there once a week. Windows' App Execution Aliases (the stubs in `AppData\Local\Microsoft\WindowsApps`) can't be stored by restic and are passed over quietly.
 
 ## Mounting by hand
 
