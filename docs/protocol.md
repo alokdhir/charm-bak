@@ -126,6 +126,8 @@ The TUI (client) talks to the menu bar app over a Unix socket. This file is the 
 | `pause` / `resume` | | `{}` |
 | `history` | `{since}` | `{runs: [Run]}`, oldest first |
 | `run` | `{job}` | `{run: Run, skipped_files: [string]}`: one run's details; `skipped_files` names every file an incomplete backup couldn't read, with the reason (up to 1000; history leaves them out) |
+| `notice_show` | `{host, job}` | `{}`: a notification was clicked (the menu bar app); the daemon keeps it two minutes and sends `notice_show` to subscribers. `host` "" is this daemon's; `job` "" means the whole list |
+| `notice_take` | none | `{notice?: {host, job}}`: claims a clicked notification, once, so only one TUI shows it |
 | `subscribe` | | `{}` first, then events on this connection (a client waits for the reply before trusting the stream) |
 | `repository` | | `{repository: RepositoryInfo or null, defaults: Defaults}` |
 | `defaults_set` | `{schedule?, retention?, excludes?}` | `{defaults: Defaults}` |

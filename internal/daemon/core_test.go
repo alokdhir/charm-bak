@@ -617,3 +617,34 @@ func TestSteadyPercent(t *testing.T) {
 		t.Errorf("first backup: %v then %v", a, b)
 	}
 }
+
+// A clicked notification is announced, then taken by one TUI only; one
+// nobody takes in time is dropped.
+func TestNoticeShowTake(t *testing.T) {
+	now := time.Now()
+	core := NewCore("test", memStore(t), ResticEngines, nil)
+	core.now = func() time.Time { return now }
+	events, unsub := core.Subscribe()
+	defer unsub()
+	c, _ := serve(t, core)
+	call[protocol.Empty](t, c, protocol.MethodNoticeShow, protocol.Notice{Host: "pantry", Job: "j-41"})
+	select {
+	case e := <-events:
+		if e.Name != protocol.EventNoticeShow || e.NoticeShow.Notice.Job != "j-41" {
+			t.Fatalf("event %+v", e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no notice_show event")
+	}
+	if got := call[protocol.NoticeTakeResult](t, c, protocol.MethodNoticeTake, nil); got.Notice == nil || got.Notice.Host != "pantry" {
+		t.Fatalf("take %+v", got)
+	}
+	if got := call[protocol.NoticeTakeResult](t, c, protocol.MethodNoticeTake, nil); got.Notice != nil {
+		t.Fatalf("taken twice: %+v", got)
+	}
+	call[protocol.Empty](t, c, protocol.MethodNoticeShow, protocol.Notice{Job: "j-1"})
+	now = now.Add(noticeKeep + time.Second)
+	if got := call[protocol.NoticeTakeResult](t, c, protocol.MethodNoticeTake, nil); got.Notice != nil {
+		t.Errorf("stale notice taken: %+v", got)
+	}
+}

@@ -4,7 +4,7 @@ Backups for a Mac and the Linux, Mac and Windows machines around it, to storage 
 
 charm-bak is a menu bar app, a background daemon and a [Charm](https://charm.sh)-style TUI wrapped around [restic](https://restic.net). restic does the hard part: encrypted, deduplicated, compressed snapshots in S3, Backblaze B2, a drive, or anything else it supports. charm-bak does everything around it: scheduling, retention, credentials, a browser for your history, restore, diff, and running the same thing on other machines without SSH.
 
-> Status: 0.4, pre-release. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [What's rough](#whats-rough).
+> Status: 0.5, pre-release. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [What's rough](#whats-rough).
 
 ![charm-bak's TUI: a source's snapshots, each with how much it added, then the files in one snapshot and a preview of the selected file](docs/screenshot.png)
 
@@ -24,7 +24,7 @@ charm-bak is the missing layer for someone who wants restic's engine, their own 
 
 ## What it does
 
-**Backs up on its own.** Each machine's daemon checks every minute for what's due, so runs missed while a laptop slept catch up on wake. Backups, cleanup and integrity checks are all scheduled for you. A failed run posts a macOS notification, and so does a backup that had to skip files it couldn't read (a warning: the snapshot is there, without them); successes stay quiet. `^N` lists past notifications, and Enter on one shows the whole story: when, how long, and the full reason, or every skipped file and why.
+**Backs up on its own.** Each machine's daemon checks every minute for what's due, so runs missed while a laptop slept catch up on wake. Backups, cleanup and integrity checks are all scheduled for you. A failed run posts a macOS notification, and so does a backup that had to skip files it couldn't read (a warning: the snapshot is there, without them); successes stay quiet. `^N` lists past notifications, and Enter on one shows the whole story: when, how long, and the full reason, or every skipped file and why. Clicking a notification opens those details in the TUI you have running and brings its window forward, down to the tab in Terminal, iTerm2 and kitty, and the window inside tmux or screen. kitty needs its remote control on for that; the TUI offers the two lines for `kitty.conf` the first time.
 
 **Sets itself up.** First launch walks through one decision per screen: where the backups go, the details, a check that it works, and the recovery key. For S3 it can sign in to AWS in the browser and make the bucket and a key limited to that machine's own folder. The repository password is generated for you, stored in the Keychain, and shown once to write down.
 
@@ -42,7 +42,7 @@ charm-bak is the missing layer for someone who wants restic's engine, their own 
 
 **Takes things back out.** Backed up something you shouldn't have? Exclude it from future runs, or remove it from past snapshots too.
 
-**Runs on your other machines without SSH.** Add Remote shows one command to paste on a Linux box or another Mac, or into an administrator PowerShell on Windows (Tab switches between them). It installs the same daemon there as a service (on Windows with restic from winget, Volume Shadow Copy for open files, and a firewall rule), pairs it with this Mac over mutually authenticated TLS, and from then on that machine backs up on its own schedule with its own credentials, whether the Mac is awake or not. You configure, browse and restore all of them from the one TUI, and their failures arrive as notifications on the Mac.
+**Runs on your other machines without SSH.** Add Remote shows one command to paste on a Linux box or another Mac, or into an administrator PowerShell on Windows (Tab switches between them). It installs the same daemon there as a service (on Windows with restic from winget, Volume Shadow Copy for open files, and a firewall rule), pairs it with this Mac over mutually authenticated TLS, and from then on that machine backs up on its own schedule with its own credentials, whether the Mac is awake or not. Removing one uninstalls everything the command installed there; if you also delete its backups, the AWS user charm-bak made for it goes too. You configure, browse and restore all of them from the one TUI, and their failures arrive as notifications on the Mac.
 
 **Keeps working when a machine is down.** The Mac reads each remote's repository itself rather than asking the remote, so a server that's crashed or a laptop that's asleep can still be browsed, compared and restored from, which is exactly when you need it. Actions that need the machine itself (editing its sources, backing it up now) are dimmed until it's back, and it's picked up within seconds when it returns.
 

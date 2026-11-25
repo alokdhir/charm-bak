@@ -253,6 +253,14 @@ public struct HistoryParams: Codable, Sendable { public var since: Date }
 public struct HistoryResult: Codable, Sendable { public var runs: [Run] }
 /// One run's details: every file an incomplete backup couldn't read.
 public struct RunParams: Codable, Sendable { public var job: String }
+/// A notification to show in a TUI: the run on host ("" is this daemon's;
+/// job "" means the whole list).
+public struct Notice: Codable, Sendable {
+    public var host: String
+    public var job: String
+    public init(host: String, job: String) { self.host = host; self.job = job }
+}
+public struct NoticeTakeResult: Codable, Sendable { public var notice: Notice? }
 public struct RunResult: Codable, Sendable { public var run: Run; public var skippedFiles: [String] }
 
 public struct RepositoryInfo: Codable, Sendable {
@@ -383,6 +391,8 @@ public enum Method: String, CaseIterable, Sendable {
     case snapshotSet = "snapshot_set"
     case snapshotMeta = "snapshot_meta"
     case pause, resume, history, run, subscribe, repository
+    case noticeShow = "notice_show"
+    case noticeTake = "notice_take"
     case defaultsSet = "defaults_set"
     case hosts
     case pairStart = "pair_start"
@@ -421,6 +431,8 @@ public enum Method: String, CaseIterable, Sendable {
         case .pause, .resume, .subscribe: (nil, Empty.self)
         case .history: (HistoryParams.self, HistoryResult.self)
         case .run: (RunParams.self, RunResult.self)
+        case .noticeShow: (Notice.self, Empty.self)
+        case .noticeTake: (nil, NoticeTakeResult.self)
         case .repository: (nil, RepositoryResult.self)
         case .defaultsSet: (DefaultsSetParams.self, DefaultsResult.self)
         case .hosts: (nil, HostsResult.self)
@@ -460,6 +472,7 @@ public enum Event: Sendable {
     case stateChanged(AppState, Job?)
     case hostChanged(Host)
     case awsStep(AWSStep)
+    case noticeShow(Notice)
 
     public var name: String {
         switch self {
@@ -470,6 +483,7 @@ public enum Event: Sendable {
         case .stateChanged: "state_changed"
         case .hostChanged: "host_changed"
         case .awsStep: "aws_step"
+        case .noticeShow: "notice_show"
         }
     }
 
@@ -478,6 +492,7 @@ public enum Event: Sendable {
     private struct SourcePayload: Codable { var source: Source }
     private struct StatePayload: Codable { var state: AppState; var job: Job? }
     private struct HostPayload: Codable { var hostInfo: Host }
+    private struct NoticePayload: Codable { var notice: Notice }
     private struct Head: Codable { var event: String }
 
     /// One wire line's object: the payload's fields with "event" beside them.
@@ -490,6 +505,7 @@ public enum Event: Sendable {
         case .stateChanged(let s, let j): try Wire.encoder.encode(StatePayload(state: s, job: j))
         case .hostChanged(let h): try Wire.encoder.encode(HostPayload(hostInfo: h))
         case .awsStep(let s): try Wire.encoder.encode(s)
+        case .noticeShow(let n): try Wire.encoder.encode(NoticePayload(notice: n))
         }
         var object = try JSONSerialization.jsonObject(with: payload) as? [String: Any] ?? [:]
         object["event"] = name
@@ -516,6 +532,7 @@ public enum Event: Sendable {
             return .stateChanged(p.state, p.job)
         case "host_changed": return .hostChanged(try Wire.decoder.decode(HostPayload.self, from: data).hostInfo)
         case "aws_step": return .awsStep(try Wire.decoder.decode(AWSStep.self, from: data))
+        case "notice_show": return .noticeShow(try Wire.decoder.decode(NoticePayload.self, from: data).notice)
         default: return nil
         }
     }

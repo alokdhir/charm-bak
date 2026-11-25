@@ -43,6 +43,12 @@ func (c *Core) removeHost(ctx context.Context, p protocol.HostRemoveParams) (pro
 	default:
 		res.Message = fmt.Sprintf("%s didn't answer, so it's still installed there. %s", p.Name, cleanupByHand(p.Name, r.os))
 	}
+	// Its AWS user goes with its backups, if charm-bak made its key.
+	if p.DeleteBackups {
+		if note := c.awsDeleteMachineUser(ctx, p.Name); note != "" {
+			res.Message = strings.TrimSpace(res.Message + " " + note)
+		}
+	}
 	if err := c.store.RemovePeer(p.Name); err != nil {
 		return res, err
 	}

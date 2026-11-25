@@ -237,6 +237,8 @@ const noticeLimit = 100
 
 // noticeList is ^N: past notifications, newest first.
 type noticeList struct {
+	// want is a clicked notification to open once the list is in.
+	want    *protocol.Notice
 	loading bool
 	list    []notice
 	errs    []string // machines whose history didn't load
@@ -349,6 +351,15 @@ func (m *noticeList) update(a *App, msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case noticesMsg:
 		m.loading, m.list, m.errs = false, msg.list, msg.errs
+		if w := m.want; w != nil {
+			m.want = nil
+			for i, n := range m.list {
+				if n.host == w.Host && n.run.Job == w.Job {
+					m.cur = i
+					return a.openNotice(m, n)
+				}
+			}
+		}
 		return nil
 	case tea.KeyPressMsg:
 		switch {

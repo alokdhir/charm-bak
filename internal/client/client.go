@@ -556,6 +556,15 @@ func (c *Client) History(ctx context.Context, since time.Time) ([]protocol.Run, 
 	return r.Runs, err
 }
 
+// NoticeTake claims the notification a click asked to show, if any.
+func (c *Client) NoticeTake(ctx context.Context) (*protocol.Notice, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	var r protocol.NoticeTakeResult
+	err := c.Call(ctx, protocol.MethodNoticeTake, nil, &r)
+	return r.Notice, err
+}
+
 // RunDetail is one run and the files it couldn't read.
 func (c *Client) RunDetail(ctx context.Context, job string) (protocol.RunResult, error) {
 	ctx, cancel := withTimeout(ctx)

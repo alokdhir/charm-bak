@@ -468,6 +468,13 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.err = msg.err
 			return a, nil
 		}
+		// The first time the machines are known: a notification clicked to
+		// start this TUI is waiting.
+		var take tea.Cmd
+		if !a.sourcesKnown {
+			take = a.takeNotice()
+			a.kittyHint()
+		}
 		a.sourcesKnown = true
 		// Keep the cursor on the same source when the list is reloaded
 		// (an event, an add or a remove), and only reload its snapshots
@@ -513,9 +520,15 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.col = colSources
 			}
 			a.snaps, a.snapsFor, a.levels = nil, "", nil
-			return a, tea.Batch(a.loadSnapshots(), paired)
+			return a, tea.Batch(a.loadSnapshots(), paired, take)
 		}
-		return a, paired
+		return a, tea.Batch(paired, take)
+
+	case noticeTakenMsg:
+		if msg.n != nil {
+			return a, a.showNotice(*msg.n)
+		}
+		return a, nil
 
 	case snapshotsMsg:
 		if a.selectedSourceID() != msg.source {

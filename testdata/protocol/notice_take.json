@@ -1,0 +1,15 @@
+{
+  "request": {
+    "id": 1,
+    "method": "notice_take"
+  },
+  "reply": {
+    "id": 1,
+    "result": {
+      "notice": {
+        "host": "pantry",
+        "job": "j-41"
+      }
+    }
+  }
+}

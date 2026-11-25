@@ -79,7 +79,7 @@ func roundTrips(_ type: any Decodable.Type, _ value: Any, _ what: String) throws
     }
     let all = Set(Method.allCases.map(\.rawValue))
     #expect(methodsSeen == all, "methods without an example: \(all.subtracting(methodsSeen))")
-    #expect(eventsSeen.count == 7, "events seen: \(eventsSeen)")
+    #expect(eventsSeen.count == 8, "events seen: \(eventsSeen)")
 }
 
 @Test func parsesNanosecondTimes() throws {

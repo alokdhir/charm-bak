@@ -531,6 +531,15 @@ func (f *Fake) SetHostAddress(_ context.Context, p protocol.HostSetParams) (prot
 	return protocol.Host{Name: p.Name, Address: addr, State: protocol.HostOK}, nil
 }
 
+// NoticeTake returns and clears Notice.
+func (f *Fake) NoticeTake(context.Context) (*protocol.Notice, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := f.Notice
+	f.Notice = nil
+	return n, nil
+}
+
 // RunDetail finds a run in History; SkippedFiles holds its files.
 func (f *Fake) RunDetail(ctx context.Context, job string) (protocol.RunResult, error) {
 	runs, _ := f.History(ctx, time.Time{})

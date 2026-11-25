@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -186,6 +187,7 @@ func (c *Core) awsKeys(ctx context.Context, p protocol.AWSKeysParams) (protocol.
 		return protocol.AWSKeysResult{}, awsPerr(err)
 	}
 	c.awsStep(host, protocol.AWSStepKeyWorks, m.Account, bucket)
+	c.rememberMadeKey(host, made["AWS_ACCESS_KEY_ID"])
 	return protocol.AWSKeysResult{Bucket: bucket, Region: region, Env: made}, nil
 }
 
@@ -268,6 +270,7 @@ func (c *Core) awsSignInKeys(ctx context.Context, host string, p protocol.AWSKey
 		return protocol.AWSKeysResult{}, awsPerr(err)
 	}
 	c.awsStep(host, protocol.AWSStepKeyWorks, who.Account, bucket)
+	c.rememberMadeKey(host, made["AWS_ACCESS_KEY_ID"])
 	return protocol.AWSKeysResult{Bucket: bucket, Region: region, Env: made, BucketCreated: created}, nil
 }
 
@@ -530,4 +533,115 @@ func (c *Core) awsKeyWorks(ctx context.Context, made map[string]string, region s
 		}
 	}
 	return fmt.Errorf("the new key still isn't accepted: %w", err)
+}
+
+// awsSettingMadeKeys is the access key ID charm-bak made for each
+// machine (aws_keys), so removing one deletes only a user it made a key
+// for: a machine set up with a key the user typed has none.
+const awsSettingMadeKeys = "aws_made_keys"
+
+func (c *Core) madeKeys() map[string]string {
+	m := map[string]string{}
+	c.store.Setting(awsSettingMadeKeys, &m)
+	return m
+}
+
+func (c *Core) rememberMadeKey(host, keyID string) {
+	m := c.madeKeys()
+	m[host] = keyID
+	if err := c.store.SetSetting(awsSettingMadeKeys, m); err != nil {
+		logf("AWS: remembering %s's key: %v", host, err)
+	}
+}
+
+func (c *Core) forgetMadeKey(host string) {
+	m := c.madeKeys()
+	if _, ok := m[host]; ok {
+		delete(m, host)
+		c.store.SetSetting(awsSettingMadeKeys, m)
+	}
+}
+
+// awsDeleteMachineUser deletes the IAM user charm-bak made for host
+// (charm-bak-<host> at /charm-bak/), with the key manager, when its
+// backups are deleted: the key has nothing left to open. Only when
+// charm-bak made that machine's key and the user still has it: a key the
+// person typed, a user charm-bak didn't make (another path) or one that
+// isn't there is left alone. The note says what's left to do by hand, ""
+// when nothing is.
+func (c *Core) awsDeleteMachineUser(ctx context.Context, host string) string {
+	keyID := c.madeKeys()[host]
+	if keyID == "" {
+		return ""
+	}
+	user := "charm-bak-" + host
+	byHand := fmt.Sprintf("charm-bak made the AWS user %s for %s; delete it in the IAM console", user, host)
+	st, err := c.awsStatus()
+	if err != nil || st.Manager == nil {
+		return byHand + " (there's no key manager on this Mac to do it)."
+	}
+	key, err := c.readSecret(awsKeychainService, awsManagerAccount)
+	if err != nil {
+		return byHand + "."
+	}
+	env, err := keyEnv(key, st.Manager.Region)
+	if err != nil {
+		return byHand + "."
+	}
+	var u struct{ User struct{ Path string } }
+	if err := c.awsJSON(ctx, env, &u, "iam", "get-user", "--user-name", user); err != nil {
+		if code := awsCode(err); code == "NoSuchEntity" || code == "AccessDenied" {
+			return "" // none, or one charm-bak didn't make (outside its path)
+		}
+		return fmt.Sprintf("Couldn't delete the AWS user %s: %v", user, err)
+	}
+	if u.User.Path != awsMachinePath {
+		c.forgetMadeKey(host)
+		return ""
+	}
+	// Still the key charm-bak made: a user whose keys were replaced by
+	// hand isn't charm-bak's to delete any more.
+	var keys struct {
+		AccessKeyMetadata []struct{ AccessKeyId string }
+	}
+	if err := c.awsJSON(ctx, env, &keys, "iam", "list-access-keys", "--user-name", user); err != nil {
+		return fmt.Sprintf("Couldn't delete the AWS user %s (%v); delete it in the IAM console.", user, err)
+	}
+	if !slices.ContainsFunc(keys.AccessKeyMetadata, func(k struct{ AccessKeyId string }) bool { return k.AccessKeyId == keyID }) {
+		c.forgetMadeKey(host)
+		return ""
+	}
+	if err := c.awsDeleteUser(ctx, env, user); err != nil {
+		return fmt.Sprintf("Couldn't delete the AWS user %s (%v); delete it in the IAM console.", user, err)
+	}
+	c.forgetMadeKey(host)
+	logf("AWS: deleted %s's user %s", host, user)
+	return ""
+}
+
+// awsDeleteUser removes a user's access keys and inline policies, then
+// the user (IAM refuses to delete a user that still has them).
+func (c *Core) awsDeleteUser(ctx context.Context, env []string, user string) error {
+	var keys struct {
+		AccessKeyMetadata []struct{ AccessKeyId string }
+	}
+	if err := c.awsJSON(ctx, env, &keys, "iam", "list-access-keys", "--user-name", user); err != nil {
+		return err
+	}
+	for _, k := range keys.AccessKeyMetadata {
+		if _, err := c.aws(ctx, env, "iam", "delete-access-key", "--user-name", user, "--access-key-id", k.AccessKeyId); err != nil {
+			return err
+		}
+	}
+	var pols struct{ PolicyNames []string }
+	if err := c.awsJSON(ctx, env, &pols, "iam", "list-user-policies", "--user-name", user); err != nil {
+		return err
+	}
+	for _, name := range pols.PolicyNames {
+		if _, err := c.aws(ctx, env, "iam", "delete-user-policy", "--user-name", user, "--policy-name", name); err != nil {
+			return err
+		}
+	}
+	_, err := c.aws(ctx, env, "iam", "delete-user", "--user-name", user)
+	return err
 }

@@ -83,6 +83,8 @@ type Repo interface {
 	History(ctx context.Context, since time.Time) ([]protocol.Run, error)
 	// RunDetail is one run and the files it couldn't read.
 	RunDetail(ctx context.Context, job string) (protocol.RunResult, error)
+	// NoticeTake claims the notification a click asked to show, if any.
+	NoticeTake(ctx context.Context) (*protocol.Notice, error)
 
 	// Events delivers the app's events until ctx ends or the app goes
 	// away; the channel closes then.

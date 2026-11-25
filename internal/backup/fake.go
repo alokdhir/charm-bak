@@ -69,6 +69,8 @@ type Fake struct {
 	runs      []protocol.Run // History beyond the sources' last runs
 	// SkippedFiles is RunDetail's files by job, for tests.
 	SkippedFiles map[string][]string
+	// Notice is what NoticeTake hands out, once, for tests.
+	Notice *protocol.Notice
 }
 
 // fakeNode describes a fixture tree: a file when children is nil.

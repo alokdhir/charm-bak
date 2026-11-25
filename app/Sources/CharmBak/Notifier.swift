@@ -15,7 +15,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
 
     /// What's failing, per machine ("" is this one), keyed by source id or
     /// job kind; guarded by `queue`.
-    private struct Failure { var title: String; var name: String; var error: String }
+    private struct Failure { var title: String; var name: String; var error: String; var job: String }
     private var failing: [String: [String: Failure]] = [:]
     private var pending: [String: DispatchWorkItem] = [:]
     private let queue = DispatchQueue(label: "charm-bak.notifier")
@@ -49,7 +49,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
             let (_, name) = Self.describe(run, host: host)
             let on = host.map { " on \($0)" } ?? ""
             post(id: "rewrite-" + run.job, title: "Past snapshots of \(name)\(on) cleaned up",
-                 body: "It's removed from them and the space is freed.")
+                 body: "It's removed from them and the space is freed.", notice: Notice(host: machine, job: run.job))
         }
         switch run.status {
         case "ok":
@@ -67,7 +67,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
             let title = run.status == "incomplete" ? Self.skippedTitle(run, name: name, host: host) : failedTitle
             queue.async {
                 self.failing[machine, default: [:]][key] = Failure(
-                    title: title, name: name, error: run.error.isEmpty ? "No details; see the TUI's run log." : run.error)
+                    title: title, name: name, error: run.error.isEmpty ? "No details; see the TUI's run log." : run.error, job: run.job)
                 self.pending[machine]?.cancel()
                 let work = DispatchWorkItem { self.postFailures(machine) }
                 self.pending[machine] = work
@@ -93,14 +93,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
         let all = (failing[machine] ?? [:]).values.sorted { $0.name < $1.name }
         guard let first = all.first else { return }
         if all.count == 1 {
-            post(id: Self.id(machine), title: first.title, body: first.error)
+            post(id: Self.id(machine), title: first.title, body: first.error, notice: Notice(host: machine, job: first.job))
             return
         }
         let on = machine.isEmpty ? "" : " on \(machine)"
         let names = all.map(\.name).joined(separator: ", ")
         let errors = Set(all.map(\.error))
         let why = errors.count == 1 ? first.error : "Different reasons; see the TUI's run log."
-        post(id: Self.id(machine), title: "\(all.count) backups\(on) need attention", body: names + "\n" + why)
+        // Several: a click opens the list, where they're together.
+        post(id: Self.id(machine), title: "\(all.count) backups\(on) need attention", body: names + "\n" + why,
+             notice: Notice(host: machine, job: ""))
     }
 
     /// The title for one failure ("Backup of videos on pantry failed") and
@@ -126,11 +128,14 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
         }
     }
 
-    private func post(id: String, title: String, body: String) {
+    private func post(id: String, title: String, body: String, notice: Notice? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        if let notice {
+            content.userInfo = ["host": notice.host, "job": notice.job]
+        }
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
@@ -143,7 +148,18 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        TUILauncher.openInBackground()
+        // The daemon holds the notification until a TUI takes it: the one
+        // running hears of it at once, a new one asks when it starts.
+        let info = response.notification.request.content.userInfo
+        if let host = info["host"] as? String, let job = info["job"] as? String {
+            let notice = Notice(host: host, job: job)
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = try? DaemonClient.call("notice_show", params: notice, as: Empty.self)
+                TUILauncher.open()
+            }
+        } else {
+            TUILauncher.openInBackground()
+        }
         completionHandler()
     }
 }

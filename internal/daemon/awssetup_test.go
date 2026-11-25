@@ -91,7 +91,26 @@ func (f *fakeAWS) run(_ context.Context, env []string, args ...string) ([]byte, 
 		return j(map[string]any{})
 	case "iam get-user":
 		u := f.users[flag(args, "--user-name")]
+		if u == nil {
+			return fail("NoSuchEntity")
+		}
 		return j(map[string]any{"User": map[string]any{"Path": u.path, "PermissionsBoundary": map[string]string{"PermissionsBoundaryArn": u.boundary}}})
+	case "iam list-user-policies":
+		var names []string
+		if f.users[flag(args, "--user-name")].policy != "" {
+			names = append(names, "charm-bak-bucket")
+		}
+		return j(map[string]any{"PolicyNames": names})
+	case "iam delete-user-policy":
+		f.users[flag(args, "--user-name")].policy = ""
+		return nil, nil
+	case "iam delete-user":
+		u := f.users[flag(args, "--user-name")]
+		if len(u.keys) > 0 || u.policy != "" {
+			return fail("DeleteConflict")
+		}
+		delete(f.users, flag(args, "--user-name"))
+		return nil, nil
 	case "iam put-user-permissions-boundary":
 		f.users[flag(args, "--user-name")].boundary = flag(args, "--permissions-boundary")
 		return nil, nil
@@ -273,5 +292,48 @@ func TestAWSKeysExisting(t *testing.T) {
 		if u := f.users["charm-bak-wren"]; u == nil || !strings.HasSuffix(u.boundary, "charm-bak-boundary-"+b) {
 			t.Errorf("wren's boundary for %s: %+v", b, u)
 		}
+	}
+}
+
+// Removing a remote with its backups deletes the user charm-bak made for
+// it, only when charm-bak made its key and the user still has it: a key
+// typed by hand, a replaced key, or a user charm-bak didn't make are left
+// alone. Without a key manager the note says to do it by hand.
+func TestAWSDeleteMachineUser(t *testing.T) {
+	c, f, _ := awsCore(t)
+	ctx := context.Background()
+	// Its own key, typed in: nothing charm-bak made, nothing to do, even
+	// with a charm-bak-looking user there.
+	f.users["charm-bak-wren"] = &fakeUser{path: "/charm-bak/", keys: []string{"AKIATYPED"}}
+	if note := c.awsDeleteMachineUser(ctx, "wren"); note != "" || f.users["charm-bak-wren"] == nil {
+		t.Fatalf("typed key: note %q, user deleted %v", note, f.users["charm-bak-wren"] == nil)
+	}
+	delete(f.users, "charm-bak-wren")
+
+	// Made by charm-bak: deleted, once.
+	if _, err := c.awsKeys(ctx, protocol.AWSKeysParams{Host: "wren", SignIn: true}); err != nil {
+		t.Fatal(err)
+	}
+	if note := c.awsDeleteMachineUser(ctx, "wren"); note != "" || f.users["charm-bak-wren"] != nil {
+		t.Errorf("delete: note %q, user %+v", note, f.users["charm-bak-wren"])
+	}
+	if note := c.awsDeleteMachineUser(ctx, "wren"); note != "" {
+		t.Errorf("already gone: %q", note)
+	}
+
+	// Made, then its key replaced by hand: not charm-bak's any more.
+	if _, err := c.awsKeys(ctx, protocol.AWSKeysParams{Host: "basement"}); err != nil {
+		t.Fatal(err)
+	}
+	f.users["charm-bak-basement"].keys = []string{"AKIAREPLACED"}
+	if note := c.awsDeleteMachineUser(ctx, "basement"); note != "" || f.users["charm-bak-basement"] == nil {
+		t.Errorf("replaced key: note %q, deleted %v", note, f.users["charm-bak-basement"] == nil)
+	}
+
+	// Made, but the key manager is gone: say so.
+	c2, _, _ := awsCore(t)
+	c2.rememberMadeKey("pantry", "AKIAMADE")
+	if note := c2.awsDeleteMachineUser(ctx, "pantry"); !strings.Contains(note, "no key manager") {
+		t.Errorf("no manager: %q", note)
 	}
 }

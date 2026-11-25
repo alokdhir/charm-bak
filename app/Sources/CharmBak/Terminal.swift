@@ -60,7 +60,10 @@ enum TUILauncher {
 
     @discardableResult
     static func open() -> Bool {
-        if raiseRunning() { return true }
+        // A TUI that's running but can't be brought forward still shows
+        // what was asked (a clicked notification goes through the daemon):
+        // a second one would only be in the way.
+        if raiseRunning() || !runningTUIs().isEmpty { return true }
         guard let tui = binary, let (app, args) = pick() else { return false }
         let p = Process()
         p.executableURL = URL(filePath: "/usr/bin/open")
@@ -86,23 +89,35 @@ enum TUILauncher {
     /// - any other terminal: its app is activated. Exact for kitty and
     ///   Ghostty as Open TUI starts them: an instance for the TUI alone.
     static func raiseRunning() -> Bool {
-        guard let tui = binary?.resolvingSymlinksInPath().path else { return false }
-        for pid in allPIDs() where executablePath(pid) == tui {
-            if raise(pid: pid) { return true }
+        for pid in runningTUIs() where raise(pid: pid) {
+            return true
         }
         return false
+    }
+
+    /// Every running TUI: processes whose executable is ours.
+    private static func runningTUIs() -> [pid_t] {
+        guard let tui = binary?.resolvingSymlinksInPath().path else { return [] }
+        return allPIDs().filter { executablePath($0) == tui }
     }
 
     private static func raise(pid: pid_t) -> Bool {
         let tty = ttyPath(pid)
         if let app = owningApp(pid) {
-            return raise(app: app, tty: tty)
+            return raise(app: app, tty: tty, pid: pid)
         }
-        // No app above it: a tmux server's child, most likely.
+        // No app above it: a tmux or screen server's child, detached from
+        // any terminal. Raise the terminal its client is attached in.
         if let tty, let client = tmuxSelect(paneTTY: tty),
            let clientPID = allPIDs().first(where: { ttyPath($0) == client }),
            let app = owningApp(clientPID) {
-            return raise(app: app, tty: client)
+            return raise(app: app, tty: client, pid: clientPID)
+        }
+        // screen: the TUI selects its own screen window when it takes the
+        // notification (only it can read $STY and $WINDOW).
+        if let server = screenServer(above: pid), let client = screenClient(of: server),
+           let app = owningApp(client) {
+            return raise(app: app, tty: ttyPath(client), pid: client)
         }
         return false
     }
@@ -120,7 +135,10 @@ enum TUILauncher {
         return nil
     }
 
-    private static func raise(app: NSRunningApplication, tty: String?) -> Bool {
+    private static func raise(app: NSRunningApplication, tty: String?, pid: pid_t) -> Bool {
+        if app.bundleIdentifier == "net.kovidgoyal.kitty", kittyFocus(app: app, pid: pid) {
+            return app.activate()
+        }
         if let tty {
             switch app.bundleIdentifier {
             case "com.apple.Terminal":
@@ -163,6 +181,54 @@ enum TUILauncher {
         return app.activate()
     }
 
+    /// Focuses the kitty window (and its tab) the process at pid runs in,
+    /// through kitty's remote control. kitty listens only with
+    /// `allow_remote_control` and `listen_on unix:/tmp/kitty` in kitty.conf;
+    /// it adds its own PID to that path. `kitten @ ls` gives each window the
+    /// PID of the process kitty started in it (the shell, or the TUI
+    /// itself), which is the process or one of its ancestors. False when
+    /// kitty doesn't listen or the window isn't found.
+    private static func kittyFocus(app: NSRunningApplication, pid: pid_t) -> Bool {
+        let socket = "/tmp/kitty-\(app.processIdentifier)"
+        guard FileManager.default.fileExists(atPath: socket),
+              let kitten = app.bundleURL?.appending(path: "Contents/MacOS/kitten").path,
+              FileManager.default.isExecutableFile(atPath: kitten),
+              let json = output(kitten, ["@", "--to", "unix:" + socket, "ls"]),
+              let osWindows = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] else {
+            return false
+        }
+        var lineage: Set<Int> = []
+        var p = pid
+        while p > 1, p != app.processIdentifier, lineage.count < 24 {
+            lineage.insert(Int(p))
+            guard let parent = procInfo(p)?.ppid else { break }
+            p = parent
+        }
+        for os in osWindows {
+            for tab in os["tabs"] as? [[String: Any]] ?? [] {
+                for w in tab["windows"] as? [[String: Any]] ?? [] {
+                    guard let id = w["id"] as? Int, let wpid = w["pid"] as? Int, lineage.contains(wpid) else { continue }
+                    return output(kitten, ["@", "--to", "unix:" + socket, "focus-window", "--match", "id:\(id)"]) != nil
+                }
+            }
+        }
+        return false
+    }
+
+    /// Runs exe and returns its output, or nil if it failed.
+    private static func output(_ exe: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(filePath: exe)
+        p.arguments = args
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+    }
+
     /// Runs AppleScript through osascript, so the events come from an
     /// Apple tool and this app's signature needs no automation
     /// entitlement. False if it fails (not allowed, the app quit).
@@ -191,6 +257,52 @@ enum TUILauncher {
         _ = run(tmux, ["select-pane", "-t", f[3]])
         let clients = run(tmux, ["list-clients", "-t", f[1], "-F", "#{client_tty}"])
         return clients.split(separator: "\n").first.map(String.init)
+    }
+
+    /// The screen server among pid's ancestors: a process running the
+    /// screen executable, detached from any terminal.
+    private static func screenServer(above pid: pid_t) -> pid_t? {
+        var p = pid
+        for _ in 0..<24 {
+            guard let parent = procInfo(p)?.ppid, parent > 1 else { return nil }
+            p = parent
+            if let exe = executablePath(p), URL(filePath: exe).lastPathComponent.lowercased() == "screen" {
+                return p
+            }
+        }
+        return nil
+    }
+
+    /// The screen client attached to server: a process of the same
+    /// executable on a terminal, inside a terminal app. With several
+    /// sessions attached, the one whose arguments name this session
+    /// (`screen -r <pid>` or `-r <name>`), else the first.
+    private static func screenClient(of server: pid_t) -> pid_t? {
+        guard let exe = executablePath(server) else { return nil }
+        let clients = allPIDs().filter {
+            $0 != server && executablePath($0) == exe && ttyPath($0) != nil && owningApp($0) != nil
+        }
+        if clients.count <= 1 { return clients.first }
+        let session = arguments(server)
+        // The session's name follows -S, also in a flag cluster like -dmS.
+        let names = [String(server)] + zip(session, session.dropFirst())
+            .filter { $0.0.hasPrefix("-") && !$0.0.hasPrefix("--") && $0.0.hasSuffix("S") }.map(\.1)
+        return clients.first { c in arguments(c).contains { a in names.contains { a == $0 || a.hasPrefix($0 + ".") || a.hasSuffix("." + $0) } } }
+            ?? clients.first
+    }
+
+    /// A process's arguments (one of this user's), from KERN_PROCARGS2:
+    /// argc, the executable path, then argv, NUL-terminated.
+    private static func arguments(_ pid: pid_t) -> [String] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return [] }
+        var buf = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0, size > 4 else { return [] }
+        let argc = Int(buf.withUnsafeBytes { $0.load(as: Int32.self) })
+        let strings = buf[4..<size].split(separator: 0, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
+        return Array(strings.dropFirst().prefix(argc))
     }
 
     private static func run(_ exe: String, _ args: [String]) -> String {

@@ -21,7 +21,7 @@ import (
 )
 
 // version is the TUI's version, sent in hello.
-const version = "0.4.0"
+const version = "0.5.0"
 
 // appBundleID is the menu bar app (app/build.sh).
 const appBundleID = "io.github.alokdhir.charm-bak"

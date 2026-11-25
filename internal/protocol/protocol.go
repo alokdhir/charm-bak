@@ -286,6 +286,8 @@ const (
 	MethodAWSStatus      = "aws_status"
 	MethodAWSKeys        = "aws_keys"
 	MethodRun            = "run"
+	MethodNoticeShow     = "notice_show"
+	MethodNoticeTake     = "notice_take"
 )
 
 // UntaggedSource is the pseudo-source for snapshots without a charm-bak tag.
@@ -765,6 +767,25 @@ type HistoryResult struct {
 	Runs []Run `json:"runs"`
 }
 
+// Notice is one notification: the run it's about, on host ("" is the
+// local daemon's own; Job "" means the whole list).
+type Notice struct {
+	Host string `json:"host"`
+	Job  string `json:"job"`
+}
+
+// NoticeTakeResult is the notification a click asked to show, if one is
+// waiting; taking it means no other TUI shows it too.
+type NoticeTakeResult struct {
+	Notice *Notice `json:"notice,omitempty"`
+}
+
+// NoticeEvent says a notification was clicked: a TUI takes it
+// (notice_take) and shows its details.
+type NoticeEvent struct {
+	Notice Notice `json:"notice"`
+}
+
 // RunParams names one run from history, for its details.
 type RunParams struct {
 	Job string `json:"job"`
@@ -789,6 +810,7 @@ const (
 	EventStateChanged  = "state_changed"
 	EventHostChanged   = "host_changed"
 	EventAWSStep       = "aws_step"
+	EventNoticeShow    = "notice_show"
 )
 
 // AWS steps, in order, as aws_keys gets through them.
@@ -813,6 +835,7 @@ type Event struct {
 	StateChanged  *StateChangedEvent
 	HostChanged   *HostChangedEvent
 	AWSStep       *AWSStepEvent
+	NoticeShow    *NoticeEvent
 }
 
 // AWSStepEvent says how far aws_keys has got making For's key, so the
@@ -897,6 +920,11 @@ func (e *Event) payload() any {
 			e.AWSStep = &AWSStepEvent{}
 		}
 		return e.AWSStep
+	case EventNoticeShow:
+		if e.NoticeShow == nil {
+			e.NoticeShow = &NoticeEvent{}
+		}
+		return e.NoticeShow
 	}
 	return nil
 }

@@ -34,6 +34,8 @@ var methods = map[string]struct{ params, result any }{
 	MethodResume:         {nil, &Empty{}},
 	MethodHistory:        {&HistoryParams{}, &HistoryResult{}},
 	MethodRun:            {&RunParams{}, &RunResult{}},
+	MethodNoticeShow:     {&Notice{}, &Empty{}},
+	MethodNoticeTake:     {nil, &NoticeTakeResult{}},
 	MethodSubscribe:      {nil, &Empty{}},
 	MethodRepository:     {nil, &RepositoryResult{}},
 	MethodDefaultsSet:    {&DefaultsSetParams{}, &DefaultsResult{}},

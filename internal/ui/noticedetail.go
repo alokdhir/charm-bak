@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -125,4 +127,57 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// noticeTakenMsg is the notification a click asked to show, claimed from
+// this Mac's daemon (nil when another TUI took it first).
+type noticeTakenMsg struct{ n *protocol.Notice }
+
+// takeNotice claims a clicked notification, if one is waiting.
+func (a *App) takeNotice() tea.Cmd {
+	repo := a.repo
+	return func() tea.Msg {
+		n, err := repo.NoticeTake(context.Background())
+		if err != nil {
+			return noticeTakenMsg{}
+		}
+		return noticeTakenMsg{n}
+	}
+}
+
+// showNotice opens ^N at a clicked notification and its details. A popup
+// that's being worked in isn't thrown away: the footer says where it is.
+func (a *App) showNotice(n protocol.Notice) tea.Cmd {
+	switch m := a.modal.(type) {
+	case nil, *noticeList:
+	case *diffView:
+		if m.back == nil {
+			a.statusMsg = "A notification was clicked: ^N shows it"
+			return nil
+		}
+	default:
+		a.statusMsg = "A notification was clicked: ^N shows it"
+		return nil
+	}
+	if n.Host == "" {
+		n.Host = a.localHost()
+	}
+	go selectOwnWindow()
+	cmd := a.openNotices()
+	if l, ok := a.modal.(*noticeList); ok {
+		l.want = &n
+	}
+	return cmd
+}
+
+// selectOwnWindow brings this TUI's own window forward inside screen when
+// a clicked notification opens here: only the TUI can read $STY and
+// $WINDOW, so the menu bar app raises the terminal and this picks the
+// screen window in it. tmux and kitty are handled by the app.
+var selectOwnWindow = func() {
+	sty, window := os.Getenv("STY"), os.Getenv("WINDOW")
+	if sty == "" || window == "" {
+		return
+	}
+	exec.Command("screen", "-S", sty, "-X", "select", window).Run()
 }

@@ -66,7 +66,10 @@ type Core struct {
 	// lastTry is when a source's backup last ended without its run
 	// being recorded (the database refused it): the scheduler waits a
 	// full interval from then, as it would from a recorded run.
-	lastTry   map[string]time.Time
+	lastTry map[string]time.Time
+	// notice is a clicked notification no TUI has taken yet (noticeKeep).
+	notice    *protocol.Notice
+	noticeAt  time.Time
 	queue     []*pendingJob
 	current   *pendingJob
 	keepCache map[string]map[string][]string // by source tag
@@ -905,6 +908,27 @@ func (c *Core) Handle(ctx context.Context, req protocol.Request) (any, error) {
 		c.mu.Unlock()
 		return protocol.DefaultsResult{Defaults: d.view()}, nil
 
+	case protocol.MethodNoticeShow:
+		var n protocol.Notice
+		if err := params(&n); err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		c.notice, c.noticeAt = &n, c.now()
+		c.publish(protocol.Event{Name: protocol.EventNoticeShow, NoticeShow: &protocol.NoticeEvent{Notice: n}})
+		c.mu.Unlock()
+		return protocol.Empty{}, nil
+
+	case protocol.MethodNoticeTake:
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		var res protocol.NoticeTakeResult
+		if c.notice != nil && c.now().Sub(c.noticeAt) < noticeKeep {
+			res.Notice = c.notice
+		}
+		c.notice = nil
+		return res, nil
+
 	case protocol.MethodPause, protocol.MethodResume:
 		c.SetPaused(req.Method == protocol.MethodPause)
 		return protocol.Empty{}, nil
@@ -1594,3 +1618,7 @@ func steadyPercent(expect int64) func(Progress) float64 {
 		return shown
 	}
 }
+
+// noticeKeep is how long a clicked notification waits for a TUI to take
+// it: long enough for a new one to start in a terminal.
+const noticeKeep = 2 * time.Minute

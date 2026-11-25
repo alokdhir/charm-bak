@@ -92,8 +92,14 @@ func (a *App) hostRemoved(msg hostRemovedMsg) tea.Cmd {
 		a.statusMsg = "error: " + msg.err.Error()
 		return nil
 	case msg.res.Message != "":
+		// Not uninstalled: what to run there. Uninstalled: what's left
+		// elsewhere (its AWS user, when it couldn't be deleted).
+		title := msg.host + " is still installed"
 		a.statusMsg = msg.host + " unpaired"
-		a.ask(&confirm{title: msg.host + " is still installed", body: msg.res.Message, answers: []string{"OK"},
+		if msg.res.Uninstalled {
+			title, a.statusMsg = msg.host+" removed", msg.host+" removed"
+		}
+		a.ask(&confirm{title: title, body: msg.res.Message, answers: []string{"OK"},
 			act: func(*App, int) tea.Cmd { return nil }})
 	default:
 		a.statusMsg = msg.host + " removed"

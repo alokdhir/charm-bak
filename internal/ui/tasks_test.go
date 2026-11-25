@@ -116,3 +116,40 @@ func TestNoticeList(t *testing.T) {
 		t.Errorf("selected %+v", s)
 	}
 }
+
+// A clicked notification opens ^N at its details, in the TUI that takes
+// it; a popup being worked in stays, and the footer says where to look.
+func TestNoticeClicked(t *testing.T) {
+	f := backup.NewFake(testNow)
+	a := NewApp(f, func() time.Time { return testNow })
+	a.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	drain(a, a.Init())
+	src := a.sources[1]
+	f.AddRun(protocol.Run{Job: "j-x", Kind: protocol.KindBackup, Source: &src.ID, Started: testNow.Add(-time.Hour), Ended: testNow.Add(-time.Hour), Status: protocol.RunFailed, Error: "bucket said no"})
+
+	f.Notice = &protocol.Notice{Job: "j-x"} // this machine's: host ""
+	drain(a, a.handleEvent(protocol.Event{Name: protocol.EventNoticeShow, NoticeShow: &protocol.NoticeEvent{Notice: *f.Notice}}))
+	d, ok := a.modal.(*diffView)
+	if !ok || d.back == nil || !strings.Contains(ansi.Strip(d.view(a)), "bucket said no") {
+		t.Fatalf("after the click: %T", a.modal)
+	}
+	if l := d.back.(*noticeList); l.list[l.cur].run.Job != "j-x" {
+		t.Errorf("list cursor on %s", l.list[l.cur].run.Job)
+	}
+
+	// Taken already (another TUI): nothing happens.
+	a.modal = nil
+	drain(a, a.handleEvent(protocol.Event{Name: protocol.EventNoticeShow, NoticeShow: &protocol.NoticeEvent{}}))
+	if a.modal != nil {
+		t.Errorf("opened %T with nothing to take", a.modal)
+	}
+
+	// A popup being worked in stays (here a Changes list).
+	help := &diffView{title: "Changes in Nov 25 12:23"}
+	a.modal = help
+	f.Notice = &protocol.Notice{Job: "j-x"}
+	drain(a, a.handleEvent(protocol.Event{Name: protocol.EventNoticeShow, NoticeShow: &protocol.NoticeEvent{}}))
+	if a.modal != help || !strings.Contains(a.statusMsg, "^N") {
+		t.Errorf("modal %T, footer %q", a.modal, a.statusMsg)
+	}
+}

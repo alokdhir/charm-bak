@@ -130,6 +130,8 @@ func (a *App) handleEvent(e protocol.Event) tea.Cmd {
 		return tea.Batch(cmds...)
 	case protocol.EventSourceChanged:
 		return a.loadSources()
+	case protocol.EventNoticeShow:
+		return a.takeNotice()
 	case protocol.EventAWSStep:
 		if f, ok := a.modal.(*setupFlow); ok {
 			f.awsStep(e.AWSStep)

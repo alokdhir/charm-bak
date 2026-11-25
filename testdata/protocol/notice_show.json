@@ -1,0 +1,14 @@
+{
+  "request": {
+    "id": 1,
+    "method": "notice_show",
+    "params": {
+      "host": "pantry",
+      "job": "j-41"
+    }
+  },
+  "reply": {
+    "id": 1,
+    "result": {}
+  }
+}
