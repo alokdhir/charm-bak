@@ -23,8 +23,9 @@ import (
 // Schedule and retention either follow the defaults or are set here.
 //
 // Keys: ↑/↓ or tab move between fields; ←/→ change a choice; space
-// toggles; Enter on Folders re-opens the folder picker, anywhere else it
-// saves; Esc cancels.
+// toggles; Enter on Folders re-opens the folder picker, on other fields
+// moves to the next one, and on the buttons at the bottom (Add or Save,
+// Cancel) presses one; Esc cancels.
 type sourceForm struct {
 	editing *protocol.Source // nil when adding
 	host    string           // whose source: editing.Host, or where it's added
@@ -35,6 +36,7 @@ type sourceForm struct {
 	schedule int               // index into scheduleChoices; 0 = the default
 	keep     *keepEditor       // default, a preset, or custom counts
 	now      bool              // back up right after adding
+	buttons  formButtons
 
 	field  int
 	saving bool
@@ -50,6 +52,7 @@ const (
 	ffRetention
 	ffKeep0     // ... ffKeep0+5
 	ffBackUpNow = ffKeep0 + 6
+	ffButtons   = ffBackUpNow + 1
 )
 
 // scheduleChoices are the schedules the form offers; 0 means "manual"
@@ -110,7 +113,10 @@ func retentionValues(r protocol.Retention) [6]int {
 // newSourceForm opens the form for adding sel, or for editing src;
 // host is where a new source goes: its defaults are the ones shown.
 func (a *App) newSourceForm(host string, src *protocol.Source, sel *backup.Selection) *sourceForm {
-	f := &sourceForm{editing: src, sel: sel, now: true, host: host}
+	f := &sourceForm{editing: src, sel: sel, now: true, host: host, buttons: newFormButtons("Add")}
+	if src != nil {
+		f.buttons = newFormButtons("Save")
+	}
 	if src != nil {
 		f.host = src.Host
 	}
@@ -183,7 +189,7 @@ func (f *sourceForm) fields() []int {
 	if f.editing == nil {
 		fs = append(fs, ffBackUpNow)
 	}
-	return fs
+	return append(fs, ffButtons)
 }
 
 func (f *sourceForm) input(field int) *textinput.Model {
@@ -220,6 +226,9 @@ func (f *sourceForm) move(delta int) tea.Cmd {
 	fs := f.fields()
 	i := slices.Index(fs, f.field)
 	f.field = fs[min(max(i+delta, 0), len(fs)-1)]
+	if f.field == ffButtons && delta > 0 {
+		f.buttons.pick = 0
+	}
 	cmd := f.focus()
 	if f.field == ffExcludes {
 		return f.excludes.focus(delta > 0)
@@ -280,11 +289,19 @@ func (f *sourceForm) key(a *App, msg tea.KeyPressMsg) tea.Cmd {
 		return f.move(1)
 	case key.Matches(msg, keyPrev), msg.String() == "up":
 		return f.move(-1)
+	case f.field == ffButtons:
+		switch f.buttons.key(msg) {
+		case 0:
+			return f.save(a)
+		case 1:
+			a.modal = nil
+		}
+		return nil
 	case key.Matches(msg, keyEnter):
 		if f.field == ffFolders {
 			return f.pickFolders(a)
 		}
-		return f.save(a)
+		return f.move(1)
 	}
 	switch f.field {
 	case ffSchedule:
@@ -528,8 +545,8 @@ func (f *sourceForm) view(a *App) string {
 	}
 	// Everything but the skip rows: title and blank, name, the rows
 	// above, Back up, Keep (and its counts), Back up now, then a blank,
-	// the help and the hints.
-	fixed := 2 + 1 + pathRows + 2 + 1 + helpLines + 1
+	// the buttons and a blank, the help and the hints.
+	fixed := 2 + 1 + pathRows + 2 + 1 + 2 + helpLines + 1
 	if f.keep.custom() {
 		fixed += len(f.keep.counts)
 	}
@@ -557,7 +574,7 @@ func (f *sourceForm) view(a *App) string {
 		}
 		row(ffBackUpNow, "Back up now", choice(ffBackUpNow, box))
 	}
-	b.WriteString("\n")
+	b.WriteString("\n" + f.buttons.view(f.field == ffButtons) + "\n\n")
 	switch {
 	case f.saving:
 		b.WriteString(styles.MutedStyle().Render("saving…") + "\n")
@@ -566,8 +583,18 @@ func (f *sourceForm) view(a *App) string {
 	default:
 		b.WriteString(helpBlock(f.fieldHelp(), inner))
 	}
-	b.WriteString(hints("↑↓", "field", "←→", "change", "enter", "save", "esc", "cancel"))
+	b.WriteString(f.hints())
 	return boxed(b.String(), inner)
+}
+
+func (f *sourceForm) hints() string {
+	switch f.field {
+	case ffButtons:
+		return hints("↑", "fields", "←→", "choose", "enter", "press", "esc", "cancel")
+	case ffFolders:
+		return hints("↑↓", "field", "enter", "choose folders", "esc", "cancel")
+	}
+	return hints("↑↓", "field", "←→", "change", "enter", "next", "esc", "cancel")
 }
 
 // fieldHelp explains the focused field in one line.
@@ -587,6 +614,10 @@ func (f *sourceForm) fieldHelp() string {
 		return "How many " + keepLabels[f.field-ffKeep0] + " back to keep one from; 0 turns the line off."
 	case f.field == ffBackUpNow:
 		return "Start the first backup as soon as it's added."
+	case f.field == ffButtons && f.editing == nil:
+		return f.buttons.help("Adds the source.", "Closes without adding it.")
+	case f.field == ffButtons:
+		return f.buttons.help("Saves the changes.", "Closes without saving.")
 	}
 	return ""
 }

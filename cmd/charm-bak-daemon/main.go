@@ -23,7 +23,7 @@ import (
 	"charm-bak/internal/daemon"
 )
 
-const version = "0.6.1"
+const version = "0.7.0"
 
 // selfPath is this executable's path, read at startup: after an update
 // renames a new file over it, Linux reports the running one as deleted.

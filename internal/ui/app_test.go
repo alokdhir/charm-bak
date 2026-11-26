@@ -107,6 +107,35 @@ func drainSkippingWait(a *App, cmd tea.Cmd) {
 	}
 }
 
+// pressSave walks a form's cursor down to its buttons and presses the
+// first (Save, Add, Restore).
+func pressSave(a *App) {
+	for range 60 {
+		if onFormButtons(a.modal) {
+			break
+		}
+		press(a, "down")
+	}
+	press(a, "enter")
+}
+
+func onFormButtons(m modal) bool {
+	switch f := m.(type) {
+	case *sourceForm:
+		return f.field == ffButtons
+	case *machinePopup:
+		if f.tab == mpAddress {
+			return f.addr.stop == hfButtons
+		}
+		return f.field == mpButtons
+	case *restoreForm:
+		return f.field == rfButtons
+	case *noteForm:
+		return f.onButtons
+	}
+	return false
+}
+
 func press(a *App, keys ...string) {
 	for _, k := range keys {
 		var msg tea.KeyPressMsg

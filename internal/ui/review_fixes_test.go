@@ -194,7 +194,7 @@ func TestPinReplyDoesNotCloseNoteForm(t *testing.T) {
 	}
 	// The form's own save still closes it.
 	typeText(a, "x")
-	press(a, "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Errorf("note save: modal %T, err %v", a.modal, f.err)
 	}
@@ -421,7 +421,7 @@ func TestRestoreFromRemoteNamesItsDisk(t *testing.T) {
 	if err != nil || p.Target != "/data/restored" || !strings.Contains(what, "on pantry") {
 		t.Fatalf("params %+v, %q, %v", p, what, err)
 	}
-	press(a, "down", "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("restore: modal %T, err %v", a.modal, f.err)
 	}

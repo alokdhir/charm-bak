@@ -4,7 +4,7 @@ Backups for a Mac and the Linux, Mac and Windows machines around it, to storage 
 
 charm-bak is a menu bar app, a background daemon and a [Charm](https://charm.sh)-style TUI wrapped around [restic](https://restic.net). restic does the hard part: encrypted, deduplicated, compressed snapshots in S3, Backblaze B2, a drive, or anything else it supports. charm-bak does everything around it: scheduling, retention, credentials, a browser for your history, restore, diff, and running the same thing on other machines without SSH.
 
-> Status: 0.6.1. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [Not there yet](#not-there-yet).
+> Status: 0.7.0. It backs up the author's Mac and home server every hour, and has been paired with a second Mac and a Windows 11 machine as remotes. What's still missing is listed under [Not there yet](#not-there-yet).
 
 ![charm-bak's TUI: a source's snapshots, each with how much it added, then the files in one snapshot and a preview of the selected file](docs/screenshot.png)
 

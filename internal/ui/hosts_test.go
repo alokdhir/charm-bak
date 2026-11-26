@@ -229,7 +229,7 @@ func TestAddSourceOnRemote(t *testing.T) {
 	if !ok || f.host != "pantry" || f.name.Value() != "data" {
 		t.Fatalf("form %T host %q name %q", a.modal, f.host, f.name.Value())
 	}
-	press(a, "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("save: %v", a.modal.(*sourceForm).err)
 	}
@@ -479,7 +479,10 @@ func TestHostAddressEdit(t *testing.T) {
 		t.Fatalf("tab %d, address %q", p.tab, f.addr.Value())
 	}
 	f.addr.SetValue("")
-	press(a, "1", "0", ".", "0", ".", "0", ".", "9")
+	press(a, "1", "0", ".", "0", ".", "0", ".", "9", "enter") // to Save
+	if f.stop != hfButtons {
+		t.Fatalf("enter on the address: stop %d, want the buttons", f.stop)
+	}
 	_, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	drain(a, cmd)
 	if a.modal != nil {

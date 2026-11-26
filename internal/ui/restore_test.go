@@ -23,7 +23,7 @@ func TestRestoreCopy(t *testing.T) {
 	if _, ok := a.modal.(*restoreForm); !ok {
 		t.Fatalf("r: modal %T, want the restore form", a.modal)
 	}
-	press(a, "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("enter: modal %T still open", a.modal)
 	}
@@ -52,7 +52,7 @@ func TestRestoreInPlaceFromDiff(t *testing.T) {
 	if !ok || !f.inPlace {
 		t.Fatalf("r in diff: modal %T, want the form in place", a.modal)
 	}
-	press(a, "enter")
+	pressSave(a)
 	if _, ok := a.modal.(*confirm); !ok {
 		t.Fatalf("replace in place didn't ask: modal %T", a.modal)
 	}
@@ -78,7 +78,7 @@ func TestRestoreRejectsRelativeFolder(t *testing.T) {
 	press(a, "right", "r", "down")
 	f := a.modal.(*restoreForm)
 	f.folder().SetValue("somewhere")
-	press(a, "enter")
+	pressSave(a)
 	if f.err == nil || len(a.repo.(*backup.Fake).Restores) != 0 {
 		t.Errorf("err %v, restores %v", f.err, a.repo.(*backup.Fake).Restores)
 	}

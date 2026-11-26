@@ -168,7 +168,7 @@ func TestOfflineMachineEdit(t *testing.T) {
 		t.Fatal("the saved defaults didn't load")
 	}
 	before := pantry.Refused
-	press(a, "enter")
+	pressSave(a)
 	if c, ok := a.modal.(*confirm); !ok || !strings.Contains(c.body, "Changing its defaults") {
 		t.Fatalf("enter: %T", a.modal)
 	}
@@ -257,7 +257,7 @@ func TestRestoreFromOfflineRemote(t *testing.T) {
 	if !strings.Contains(view, "this Mac") || !strings.Contains(view, "pantry is offline") || !strings.Contains(view, "lands on this Mac as ~/Downloads") {
 		t.Errorf("popup doesn't say where it lands:\n%s", view)
 	}
-	press(a, "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("enter: still %T, err %v", a.modal, f.err)
 	}
@@ -293,7 +293,7 @@ func TestRestoreToEitherMachine(t *testing.T) {
 	if !strings.Contains(ansi.Strip(here), "lands on this Mac as") {
 		t.Errorf("here:\n%s", ansi.Strip(here))
 	}
-	press(a, "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("still %T: %v", a.modal, f.err)
 	}
@@ -309,7 +309,7 @@ func TestRestoreToEitherMachine(t *testing.T) {
 		t.Fatalf("field %d", f.field)
 	}
 	typeText(a, "/data/restored")
-	press(a, "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("still %T: %v", a.modal, f.err)
 	}

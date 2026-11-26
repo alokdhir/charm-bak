@@ -37,6 +37,7 @@ type machinePopup struct {
 	schedule int // index into defaultScheduleChoices
 	keep     *keepEditor
 	skip     *patternList // patterns every source skips
+	buttons  formButtons
 	saving   bool
 
 	// Address tab (remotes).
@@ -68,9 +69,9 @@ type defaultsSavedMsg struct {
 // startMachine opens host's popup at tab.
 func (a *App) startMachine(host string, tab int) tea.Cmd {
 	h := a.findHost(host)
-	p := &machinePopup{loading: true, host: host, remote: !h.Local && a.isRemote(host), repo: a.repo.ForHost(host), skip: newPatternList(nil, "")}
+	p := &machinePopup{loading: true, host: host, remote: !h.Local && a.isRemote(host), repo: a.repo.ForHost(host), skip: newPatternList(nil, ""), buttons: newFormButtons("Save")}
 	if p.remote {
-		p.addr = &hostForm{host: host, addr: newTextField(h.Address, "pantry.local or 192.168.1.10")}
+		p.addr = newHostForm(host, h.Address)
 		if tab == mpAddress {
 			p.tab = mpAddress
 		}
@@ -122,6 +123,7 @@ const (
 	mpKeep     = 1
 	mpCount0   = 2 // ... mpCount0+5
 	mpSkip     = mpCount0 + 6
+	mpButtons  = mpSkip + 1
 )
 
 func (p *machinePopup) fields() []int {
@@ -131,7 +133,7 @@ func (p *machinePopup) fields() []int {
 			fs = append(fs, mpCount0+i)
 		}
 	}
-	return append(fs, mpSkip)
+	return append(fs, mpSkip, mpButtons)
 }
 
 // count is the focused custom count's input, nil elsewhere.
@@ -165,7 +167,7 @@ func (p *machinePopup) focus() tea.Cmd {
 		p.skip.blur()
 	}
 	switch {
-	case p.tab == mpAddress && !p.addr.onRepair:
+	case p.tab == mpAddress && p.addr.onAddress():
 		return p.addr.addr.Focus()
 	case p.count() != nil:
 		in := p.count()
@@ -181,6 +183,9 @@ func (p *machinePopup) move(delta int) tea.Cmd {
 	fs := p.fields()
 	i := slices.Index(fs, p.field)
 	p.field = fs[min(max(i+delta, 0), len(fs)-1)]
+	if p.field == mpButtons && delta > 0 {
+		p.buttons.pick = 0
+	}
 	cmd := p.focus()
 	if p.field == mpSkip {
 		return p.skip.focus(delta > 0)
@@ -253,8 +258,16 @@ func (p *machinePopup) key(a *App, msg tea.KeyPressMsg) tea.Cmd {
 		return p.move(1)
 	case msg.String() == "up":
 		return p.move(-1)
+	case p.field == mpButtons:
+		switch p.buttons.key(msg) {
+		case 0:
+			return p.save(a)
+		case 1:
+			a.modal = nil
+		}
+		return nil
 	case key.Matches(msg, keyEnter):
-		return p.save(a)
+		return p.move(1)
 	}
 	if p.field == mpKeep {
 		switch msg.String() {
@@ -361,10 +374,14 @@ func (p *machinePopup) footer(a *App, tab int) string {
 		b.WriteString(hints("tab", "address", "esc", "close"))
 	case p.keep == nil:
 		b.WriteString(hints("esc", "close"))
+	case p.field == mpButtons && p.remote:
+		b.WriteString(hints("tab", "address", "↑", "fields", "←→", "choose", "enter", "press", "esc", "cancel"))
+	case p.field == mpButtons:
+		b.WriteString(hints("↑", "fields", "←→", "choose", "enter", "press", "esc", "cancel"))
 	case p.remote:
-		b.WriteString(hints("tab", "address", "↑↓", "field", "←→", "change", "enter", "save", "esc", "cancel"))
+		b.WriteString(hints("tab", "address", "↑↓", "field", "←→", "change", "enter", "next", "esc", "cancel"))
 	default:
-		b.WriteString(hints("↑↓", "field", "←→", "change", "enter", "save", "esc", "cancel"))
+		b.WriteString(hints("↑↓", "field", "←→", "change", "enter", "next", "esc", "cancel"))
 	}
 	return b.String()
 }
@@ -376,6 +393,8 @@ func (p *machinePopup) fieldHelp(a *App) string {
 		return fmt.Sprintf("How often sources back up unless they set their own; %s follow it.", pluralize(a.followers(p.host, "schedule"), "source"))
 	case p.field == mpSkip:
 		return p.skip.help()
+	case p.field == mpButtons:
+		return p.buttons.help("Saves the defaults.", "Closes without saving.")
 	case p.field >= mpCount0:
 		return "How many " + keepLabels[p.field-mpCount0] + " back to keep one from; 0 turns the line off."
 	}
@@ -447,8 +466,9 @@ func (p *machinePopup) body(a *App, tab int) string {
 	}
 	// The skip patterns get the rows the popup has left: the heading and
 	// its blank, the line above and its blank, Back up, Keep (and its
-	// counts), then the footer's blank, help and hints.
-	fixed := 2 + 2 + 2 + 1 + helpLines + 1
+	// counts), the buttons and their blank, then the footer's blank, help
+	// and hints.
+	fixed := 2 + 2 + 2 + 2 + 1 + helpLines + 1
 	if p.keep.custom() {
 		fixed += len(p.keep.counts)
 	}
@@ -459,5 +479,6 @@ func (p *machinePopup) body(a *App, tab int) string {
 		}
 		row(p.field == mpSkip, label, v)
 	}
+	b.WriteString("\n" + p.buttons.view(p.field == mpButtons) + "\n")
 	return b.String()
 }

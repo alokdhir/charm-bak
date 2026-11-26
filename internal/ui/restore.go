@@ -39,6 +39,7 @@ type restoreForm struct {
 	// folder is the copy's folder on the machine it lands on: one input
 	// per machine, so switching "Restore to" keeps what was typed.
 	folderHere, folderThere textinput.Model
+	buttons                 formButtons
 	err                     error
 	sending                 bool
 }
@@ -48,6 +49,7 @@ const (
 	rfWhere
 	rfFolder
 	rfExisting
+	rfButtons
 )
 
 // local reports whether the restore writes this Mac's disk.
@@ -93,7 +95,7 @@ func (a *App) startRestore(n node, inPlace bool) tea.Cmd {
 	if src, ok := a.selSource(); ok && src.Host != "" {
 		host = src.Host
 	}
-	f := &restoreForm{n: n, host: host, remote: a.isRemote(host), offline: a.hostDown(host), snapTime: when, inPlace: inPlace, replace: true}
+	f := &restoreForm{n: n, host: host, remote: a.isRemote(host), offline: a.hostDown(host), snapTime: when, inPlace: inPlace, replace: true, buttons: newFormButtons("Restore")}
 	f.home, _ = os.UserHomeDir()
 	// A folder here defaults to this Mac's ~/Downloads; one on a remote
 	// is a full path there, with nothing filled in (this Mac's home
@@ -123,9 +125,9 @@ func (f *restoreForm) fields() []int {
 		fs = append(fs, rfWhere)
 	}
 	if f.inPlace && !f.here {
-		return append(fs, rfExisting)
+		return append(fs, rfExisting, rfButtons)
 	}
-	return append(fs, rfFolder)
+	return append(fs, rfFolder, rfButtons)
 }
 
 func (f *restoreForm) focus() tea.Cmd {
@@ -147,7 +149,11 @@ func (f *restoreForm) move(delta int) tea.Cmd {
 			i = j
 		}
 	}
-	f.field = fs[min(max(i+delta, 0), len(fs)-1)]
+	next := fs[min(max(i+delta, 0), len(fs)-1)]
+	if next == rfButtons && f.field != rfButtons {
+		f.buttons.pick = 0
+	}
+	f.field = next
 	return f.focus()
 }
 
@@ -184,8 +190,16 @@ func (f *restoreForm) key(a *App, msg tea.KeyPressMsg) tea.Cmd {
 		return f.move(1)
 	case key.Matches(msg, keyPrev), msg.String() == "up":
 		return f.move(-1)
+	case f.field == rfButtons:
+		switch f.buttons.key(msg) {
+		case 0:
+			return f.submit(a)
+		case 1:
+			a.modal = nil
+		}
+		return nil
 	case key.Matches(msg, keyEnter):
-		return f.submit(a)
+		return f.move(1)
 	}
 	flip := msg.String() == "left" || msg.String() == "right" || msg.String() == "h" || msg.String() == "l" || msg.String() == "space"
 	switch f.field {
@@ -390,7 +404,7 @@ func (f *restoreForm) view(a *App) string {
 			row(-1, "", styles.MutedStyle().Render(midTrunc("restored onto "+f.host+"'s disk, not this Mac's", vw)))
 		}
 	}
-	b.WriteString("\n")
+	b.WriteString("\n" + f.buttons.view(f.field == rfButtons) + "\n\n")
 	switch {
 	case f.sending:
 		b.WriteString(styles.MutedStyle().Render("asking the daemon…") + "\n")
@@ -399,7 +413,11 @@ func (f *restoreForm) view(a *App) string {
 	default:
 		b.WriteString(styles.MutedStyle().Render(f.fieldHelp()) + "\n")
 	}
-	b.WriteString(hints("↑↓", "field", "←→", "change", "enter", "restore", "esc", "cancel"))
+	if f.field == rfButtons {
+		b.WriteString(hints("↑", "fields", "←→", "choose", "enter", "press", "esc", "cancel"))
+	} else {
+		b.WriteString(hints("↑↓", "field", "←→", "change", "enter", "next", "esc", "cancel"))
+	}
 	return boxed(b.String(), inner)
 }
 
@@ -421,6 +439,10 @@ func (f *restoreForm) fieldHelp() string {
 		return "Overwrites changed files with the snapshot's copy; asks first."
 	case f.field == rfExisting:
 		return "Leaves every file on disk as it is; brings back only what's gone."
+	case f.field == rfButtons && f.inPlace && !f.here && f.replace:
+		return f.buttons.help("Restores it, after asking before anything is replaced.", "Closes without restoring.")
+	case f.field == rfButtons:
+		return f.buttons.help("Restores it.", "Closes without restoring.")
 	}
 	return ""
 }

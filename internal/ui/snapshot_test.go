@@ -28,7 +28,7 @@ func TestPinToggles(t *testing.T) {
 	}
 }
 
-// e edits the note; Enter saves, an empty note clears it, Esc changes
+// e edits the note; Enter goes to Save, Enter there saves, an empty note clears it, Esc changes
 // nothing.
 func TestEditSnapshotNote(t *testing.T) {
 	a := newTestApp(t, 160, 40)
@@ -36,7 +36,7 @@ func TestEditSnapshotNote(t *testing.T) {
 	if _, ok := a.modal.(*noteForm); !ok {
 		t.Fatalf("e: modal %T, want the note form", a.modal)
 	}
-	press(a, "h", "i", "enter")
+	press(a, "h", "i", "enter", "enter")
 	if a.modal != nil || a.snaps[0].Note != "hi" {
 		t.Fatalf("note %q, modal %T", a.snaps[0].Note, a.modal)
 	}
@@ -47,7 +47,7 @@ func TestEditSnapshotNote(t *testing.T) {
 	press(a, "e")
 	nf := a.modal.(*noteForm)
 	nf.note.SetValue("")
-	press(a, "enter")
+	press(a, "enter", "enter")
 	if a.snaps[0].Note != "" {
 		t.Fatalf("empty didn't clear: %q", a.snaps[0].Note)
 	}

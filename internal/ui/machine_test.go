@@ -28,7 +28,8 @@ func TestMachineDefaults(t *testing.T) {
 	a := newTestApp(t, 160, 40)
 	p := openMachine(t, a)
 	before := defaultScheduleChoices()[p.schedule]
-	press(a, "right", "enter")
+	press(a, "right")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("enter: still open, err %v", p.err)
 	}
@@ -68,7 +69,7 @@ func TestMachineKeep(t *testing.T) {
 	if p.keep.text() != "1 year" || !strings.Contains(p.fieldHelp(a), "one a month for a year") {
 		t.Errorf("text %q, help %q", p.keep.text(), p.fieldHelp(a))
 	}
-	press(a, "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("still open: %v", p.err)
 	}
@@ -130,7 +131,8 @@ func TestMachineSkipList(t *testing.T) {
 	if p.skip.edit != 0 {
 		t.Fatalf("enter on a pattern: edit %d", p.skip.edit)
 	}
-	press(a, "backspace", "backspace", "*", "enter", "down", "down", "enter")
+	press(a, "backspace", "backspace", "*", "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("still open: %v", p.err)
 	}

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -15,14 +16,29 @@ import (
 // hostForm is a remote's Address tab (machinePopup): where it's reached,
 // for when its address changed. The pairing (its key) stays, so this can
 // only point at the same machine. Below the address, Repair: the command
-// that reinstalls the remote's daemon (addRemote's repair screen).
+// that reinstalls the remote's daemon (addRemote's repair screen), and
+// the Save and Cancel buttons. Enter on the address goes to Save.
 type hostForm struct {
-	host     string
-	addr     textinput.Model
-	err      error
-	sending  bool
-	onRepair bool // the cursor is on Repair, not the address
+	host    string
+	addr    textinput.Model
+	err     error
+	sending bool
+	stop    int // hfAddress, hfRepair or hfButtons
+	buttons formButtons
 }
+
+const (
+	hfAddress = iota
+	hfRepair
+	hfButtons
+)
+
+func newHostForm(host, addr string) *hostForm {
+	return &hostForm{host: host, addr: newTextField(addr, "pantry.local or 192.168.1.10"), buttons: newFormButtons("Save")}
+}
+
+// onAddress reports whether the address field has the cursor.
+func (f *hostForm) onAddress() bool { return f.stop == hfAddress }
 
 type hostSetMsg struct {
 	name string // the machine asked about
@@ -30,7 +46,20 @@ type hostSetMsg struct {
 	err  error
 }
 
-func (f *hostForm) typing() bool { return !f.onRepair }
+func (f *hostForm) typing() bool { return f.onAddress() }
+
+// moveTo puts the cursor on stop, focusing the address when it's there.
+func (f *hostForm) moveTo(stop int) tea.Cmd {
+	if stop == hfButtons && f.stop != hfButtons {
+		f.buttons.pick = 0
+	}
+	f.stop = stop
+	if stop == hfAddress {
+		return f.addr.Focus()
+	}
+	f.addr.Blur()
+	return nil
+}
 
 func (f *hostForm) update(a *App, msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -51,29 +80,25 @@ func (f *hostForm) update(a *App, msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, keyEsc):
 			a.modal = nil
 			return nil
-		case !f.onRepair && msg.String() == "down":
-			f.onRepair = true
-			f.addr.Blur()
-			return nil
-		case f.onRepair && msg.String() == "up":
-			f.onRepair = false
-			return f.addr.Focus()
-		case f.onRepair:
+		case msg.String() == "down":
+			return f.moveTo(min(f.stop+1, hfButtons))
+		case msg.String() == "up":
+			return f.moveTo(max(f.stop-1, hfAddress))
+		case f.stop == hfRepair:
 			if key.Matches(msg, keyEnter) {
 				return a.startRepair(f.host)
 			}
 			return nil
+		case f.stop == hfButtons:
+			switch f.buttons.key(msg) {
+			case 0:
+				return f.save(a)
+			case 1:
+				a.modal = nil
+			}
+			return nil
 		case key.Matches(msg, keyEnter):
-			addr := strings.TrimSpace(f.addr.Value())
-			if addr == "" {
-				return nil
-			}
-			f.sending, f.err = true, nil
-			repo, name := a.repo, f.host
-			return func() tea.Msg {
-				h, err := repo.SetHostAddress(context.Background(), protocol.HostSetParams{Name: name, Address: addr})
-				return hostSetMsg{name: name, host: h, err: err}
-			}
+			return f.moveTo(hfButtons)
 		}
 		var cmd tea.Cmd
 		f.addr, cmd = f.addr.Update(msg)
@@ -81,6 +106,20 @@ func (f *hostForm) update(a *App, msg tea.Msg) tea.Cmd {
 		return cmd
 	}
 	return nil
+}
+
+func (f *hostForm) save(a *App) tea.Cmd {
+	addr := strings.TrimSpace(f.addr.Value())
+	if addr == "" {
+		f.err = fmt.Errorf("the address can't be empty")
+		return nil
+	}
+	f.sending, f.err = true, nil
+	repo, name := a.repo, f.host
+	return func() tea.Msg {
+		h, err := repo.SetHostAddress(context.Background(), protocol.HostSetParams{Name: name, Address: addr})
+		return hostSetMsg{name: name, host: h, err: err}
+	}
 }
 
 // body is the tab's fields, above the status line and hints.
@@ -91,12 +130,13 @@ func (f *hostForm) body(a *App, inner int) string {
 	b.WriteString(f.addr.View() + "\n")
 	b.WriteString(styles.MutedStyle().Width(inner).Render("Where this Mac reaches "+f.host+"'s daemon: a name or IP, with :port if not 7457. The pairing stays, so it only connects if the same machine answers.") + "\n\n")
 	label := "Repair " + f.host + "…"
-	if f.onRepair {
+	if f.stop == hfRepair {
 		b.WriteString(styles.SelectedStyle().Render("▸ "+label) + "\n")
 	} else {
 		b.WriteString(styles.FieldValueStyle().Render("  "+label) + "\n")
 	}
-	b.WriteString(styles.MutedStyle().Width(inner).Render("A command to run on "+f.host+" that reinstalls its daemon, for when it won't start. Keeps its sources, backups and pairing.") + "\n")
+	b.WriteString(styles.MutedStyle().Width(inner).Render("A command to run on "+f.host+" that reinstalls its daemon, for when it won't start. Keeps its sources, backups and pairing.") + "\n\n")
+	b.WriteString(f.buttons.view(f.stop == hfButtons) + "\n")
 	return b.String()
 }
 
@@ -112,11 +152,13 @@ func (f *hostForm) footer() string {
 	default:
 		b.WriteString("\n")
 	}
-	switch {
-	case f.onRepair:
-		b.WriteString(hints("tab", "defaults", "enter", "repair", "↑", "address", "esc", "cancel"))
+	switch f.stop {
+	case hfRepair:
+		b.WriteString(hints("tab", "defaults", "↑↓", "move", "enter", "repair", "esc", "cancel"))
+	case hfButtons:
+		b.WriteString(hints("tab", "defaults", "↑", "repair", "←→", "choose", "enter", "press", "esc", "cancel"))
 	default:
-		b.WriteString(hints("tab", "defaults", "enter", "save", "↓", "repair", "esc", "cancel"))
+		b.WriteString(hints("tab", "defaults", "↓", "repair", "enter", "next", "esc", "cancel"))
 	}
 	return b.String()
 }

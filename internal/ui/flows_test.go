@@ -55,7 +55,7 @@ func TestAddSourceWithAnException(t *testing.T) {
 	if got := f.name.Value(); got != "home" {
 		t.Errorf("default name %q, want home", got)
 	}
-	press(a, "enter") // save
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("after save: modal still open, err %v", a.modal.(*sourceForm).err)
 	}
@@ -89,7 +89,7 @@ func TestEditSourceSchedule(t *testing.T) {
 		t.Fatalf("field %d, want schedule", f.field)
 	}
 	press(a, "right") // hourly → every 2h
-	press(a, "enter")
+	pressSave(a)
 	if a.modal != nil {
 		t.Fatalf("save failed: %v", f.err)
 	}
